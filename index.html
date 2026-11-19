@@ -461,4 +461,379 @@ addEventListener('online',()=>{showConnectionState();pull()});
 addEventListener('offline',()=>showConnectionState());
 showConnectionState();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')){}
+
+/* AGREGAR TALLES QUE NO FIGURAN EN EXCEL */
+
+const calcOriginalTalles = calc;
+
+calc = function () {
+  const c = calcOriginalTalles();
+  if (!c) return c;
+
+  const modelos = new Map();
+
+  S.stock.forEach(r => {
+    if (
+      r.sucursal !== c.s.sucursal ||
+      (r.imp || r.importacion_id) !== c.s.importacion_id
+    ) return;
+
+    const sku = String(r.sku).trim().toUpperCase();
+    if (!modelos.has(sku)) modelos.set(sku, r);
+  });
+
+  c.L.forEach(v => {
+    if (!v.unk || !v.talle) return;
+
+    const modelo = modelos.get(
+      String(v.sku).trim().toUpperCase()
+    );
+
+    if (!modelo) return;
+
+    Object.assign(v, {
+      nombre: modelo.nombre || '',
+      marca: modelo.marca || '',
+      categoria: modelo.categoria || '',
+      nuevoTalle: true,
+      unk: 0,
+      sucursal: c.s.sucursal,
+      sis: 0,
+      st: v.phys > 0 ? 'SOBRANTE' : 'COINCIDE'
+    });
+  });
+
+  return c;
+};
+
+
+// INCLUIR TALLES NUEVOS EN LA BUSQUEDA
+
+const idxOriginalTalles = idx;
+
+idx = function () {
+  const I = idxOriginalTalles();
+  const s = cur();
+
+  if (!s) return I;
+
+  S.counts.forEach(c => {
+    if (
+      c.sesion_id !== s.id ||
+      c.sucursal !== s.sucursal ||
+      c.anulado ||
+      !c.talle
+    ) return;
+
+    const sku = String(c.sku).trim().toUpperCase();
+    const talles = I.K.get(sku);
+
+    if (!talles) return;
+
+    const existe = talles.some(r =>
+      K(s.sucursal, r.sku, r.talle) ===
+      K(s.sucursal, c.sku, c.talle)
+    );
+
+    if (existe) return;
+
+    talles.push({
+      ...talles[0],
+      talle: c.talle,
+      cantidad: 0,
+      nuevoTalle: true
+    });
+  });
+
+  return IDX = I;
+};
+
+
+// ACTUALIZAR LISTADOS DESPUES DE CONTAR
+
+const addOriginalTalles = add;
+
+add = function (...args) {
+  IDX = null;
+  return addOriginalTalles(...args);
+};
+
+const undoOriginalTalles = undo;
+
+undo = function (...args) {
+  IDX = null;
+  return undoOriginalTalles(...args);
+};
+
+
+// BOTON AGREGAR TALLE FALTANTE
+
+const selUIOriginalTalles = selUI;
+
+selUI = function () {
+  selUIOriginalTalles();
+
+  const t = $('tal');
+
+  if (
+    !t ||
+    !sel ||
+    !(IDX || idx()).K.has(sel.sku)
+  ) return;
+
+  const box = document.createElement('div');
+  box.className = 'card';
+  box.style.marginTop = '10px';
+
+  box.innerHTML = `
+    <b>¿Tenés un talle que no figura en Excel?</b>
+
+    <p class="mu">
+      Registralo como stock físico nuevo
+      para preparar una entrada.
+    </p>
+
+    <button
+      type="button"
+      class="g"
+      id="btnNuevoTalle"
+      style="width:100%">
+      + Agregar talle faltante
+    </button>
+
+    <div id="formNuevoTalle"
+         hidden
+         style="margin-top:10px">
+
+      <label>Nuevo talle</label>
+
+      <input
+        id="valorNuevoTalle"
+        maxlength="24"
+        placeholder="Ej: 11 US, 42 EU, XXL">
+
+      <label>Cantidad física encontrada</label>
+
+      <input
+        id="cantidadNuevoTalle"
+        type="number"
+        inputmode="numeric"
+        min="1"
+        step="1"
+        value="1">
+
+      <button
+        type="button"
+        class="b"
+        id="guardarNuevoTalle"
+        style="width:100%;margin-top:8px">
+        Guardar talle
+      </button>
+
+    </div>
+  `;
+
+  t.insertBefore(box, t.lastElementChild);
+
+  box.querySelector('#btnNuevoTalle').onclick = () => {
+    const form = box.querySelector('#formNuevoTalle');
+    form.hidden = !form.hidden;
+
+    if (!form.hidden) {
+      box.querySelector('#valorNuevoTalle').focus();
+    }
+  };
+
+  box.querySelector('#guardarNuevoTalle').onclick =
+    registrarTalleNuevo;
+};
+
+
+// GUARDAR NUEVO TALLE EN CONTEO FISICO
+
+function registrarTalleNuevo() {
+
+  if (!cloudUser || !cur() || !sel) {
+    return toast('Seleccioná usuario, sesión y SKU');
+  }
+
+  if (cur().estado !== 'abierta') {
+    return toast('El inventario no está abierto');
+  }
+
+  if (lockedSec(cur().id, S.cfg.sec || 'General')) {
+    return toast('El sector está cerrado');
+  }
+
+  const talle = String(
+    $('valorNuevoTalle')?.value || ''
+  ).trim().replace(/\s+/g, ' ').toUpperCase();
+
+  const cantidad = Number(
+    $('cantidadNuevoTalle')?.value
+  );
+
+  if (!/^[\p{L}\p{N} .,+\/-]{1,24}$/u.test(talle)) {
+    return toast('Ingresá un talle válido');
+  }
+
+  if (
+    !Number.isSafeInteger(cantidad) ||
+    cantidad < 1 ||
+    cantidad > 100000
+  ) {
+    return toast('Ingresá una cantidad entera mayor que cero');
+  }
+
+  const talles = (IDX || idx()).K.get(sel.sku) || [];
+
+  if (!talles.length) {
+    return toast('El SKU no está registrado en esta sucursal');
+  }
+
+  if (talles.some(r => tm(r.talle, talle))) {
+    return toast('Ese talle ya existe; utilizá su fila de conteo');
+  }
+
+  if (!confirm(
+    `Agregar ${cantidad} unidad(es) del SKU ${sel.sku}, talle ${talle}?`
+  )) return;
+
+  const modelo = talles[0];
+
+  add({
+    ...modelo,
+    talle,
+    nuevoTalle: true
+  }, cantidad, 'talle_fisico_nuevo');
+
+  IDX = null;
+  selUI();
+
+  toast(
+    `Talle ${talle} registrado: ${cantidad} unidad(es)`,
+    3800
+  );
+}
+
+
+// NO ALTERAR PORCENTAJE DE AVANCE
+
+const statsOriginalTalles = stats;
+
+stats = function () {
+  const c = statsOriginalTalles();
+  if (!c) return c;
+
+  const nuevos = c.L.filter(v => v.nuevoTalle);
+
+  c.o.NUEVOS = nuevos.length;
+  c.o.tot -= nuevos.length;
+  c.o.ok -= nuevos.filter(v => v.n).length;
+
+  return c;
+};
+
+
+// EXIGIR VALIDACION ANTES DE AJUSTAR
+
+const aprobarOriginalTalles = aprobar;
+
+aprobar = function (k, t) {
+  const v = calc()?.V.get(k);
+
+  if (v?.nuevoTalle && v.m !== 'validado') {
+    return toast(
+      'Primero validá el talle nuevo en Avance',
+      4500
+    );
+  }
+
+  return aprobarOriginalTalles(k, t);
+};
+
+
+const aprobarTodoOriginalTalles = aprobarTodo;
+
+aprobarTodo = function (tipo) {
+  const c = calc();
+
+  const sinValidar = c?.L.filter(v =>
+    v.nuevoTalle &&
+    v.d > 0 &&
+    v.m !== 'validado'
+  ) || [];
+
+  if (tipo === 'ENTRADAS' && sinValidar.length) {
+    return toast(
+      `Hay ${sinValidar.length} talles nuevos pendientes de validar`,
+      4500
+    );
+  }
+
+  return aprobarTodoOriginalTalles(tipo);
+};
+
+
+// MOSTRAR TALLES NUEVOS EN AJUSTES
+
+const vAjustesOriginalTalles = vAjustes;
+
+vAjustes = function () {
+  const html = vAjustesOriginalTalles();
+
+  const nuevos = calc()?.L.filter(v =>
+    v.nuevoTalle && v.d > 0
+  ) || [];
+
+  if (!nuevos.length) return html;
+
+  const filas = nuevos.map(v => `
+    <tr>
+      <td>${esc(v.sku)}</td>
+      <td>${esc(v.talle)}</td>
+      <td>0</td>
+      <td>${v.phys}</td>
+      <td>
+        ${v.m === 'validado'
+          ? 'Validado'
+          : `<button class="g"
+               onclick="marca(${jsAttr(v.k)},'validado')">
+               Validar
+             </button>`
+        }
+      </td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="card">
+      <b>
+        Talles que NO figuran en Excel (${nuevos.length})
+      </b>
+
+      <p class="mu">
+        Son posibles ENTRADAS.
+        Validá cada talle antes de aprobar el ajuste.
+      </p>
+
+      <table>
+        <tr>
+          <th>SKU</th>
+          <th>Talle</th>
+          <th>Sistema</th>
+          <th>Físico</th>
+          <th>Revisión</th>
+        </tr>
+        ${filas}
+      </table>
+    </div>
+  ` + html;
+};
+
+
+// REFRESCAR EL SISTEMA
+
+IDX = null;
+render();
 </script></body></html>
