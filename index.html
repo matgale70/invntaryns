@@ -382,6 +382,7 @@ function vAvance(){const s=stats();if(!s)return'<div class="card">Elegí una ses
  <div class="card"><b>Por sector</b> ${Object.entries(sec).map(([k,v])=>`<div class="tl"><span class="t">${esc(k)} ${S.sectores.some(x=>x.id===s.s.id+'|'+k&&x.cerrado)?'🔒':''}</span>${v} u</div>`).join('')||'—'}<br><b>Por operador</b> ${Object.entries(op).map(([k,v])=>`<div class="tl"><span class="t">${esc(k)}</span>${v} lecturas</div>`).join('')||'—'}</div>
  <div class="card"><input placeholder="Filtrar por SKU, nombre, marca o categoría" value="${esc(flt)}" oninput="flt=this.value.toLowerCase();clearTimeout(window._f);window._f=setTimeout(render,300)">
  <button class="g" style="width:100%;margin-top:8px" onclick="cero()">Dar de baja artículos no encontrados físicamente (stock 0)</button>
+ <button class="b" style="width:100%;margin-top:8px" onclick="repo()">Exportar inventario completo a Excel (todas las hojas)</button>
  <table><tr><th>SKU / talle</th><th>Sis</th><th>Fís</th><th></th></tr>${rows.map(v=>`<tr><td>${esc(v.sku)} <span class="mu">${esc(v.talle)}<br>${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.n?v.phys:'—'}</td><td><span class="tag ${v.st}">${v.st==='NI'?'NO IDENT.':v.st}</span>${v.m?` <span class="mu">${v.m}</span>`:''}<br>${v.st==='FALTANTE'||v.st==='SOBRANTE'?`<button class="g" onclick="marca(${jsAttr(v.k)},'recuento')">Recontar</button> <button class="g" onclick="marca(${jsAttr(v.k)},'validado')">Validar</button>`:''}</td></tr>`).join('')}</table><div class="mu">Mostrando ${rows.length} (máx. 80)</div></div>`}
 function marca(k,e){if(cloudUser?.rol==='operador')return toast('Recuento y validación requieren supervisor');const s=cur();const[,sku,talle]=k.split('|'),v=calc().V.get(k);up('marcas',{id:`${s.id}|${k}`,sesion_id:s.id,sucursal:s.sucursal,sku:v.sku,talle:v.talle,estado:e,por:S.cfg.ope,created_at:now()});if(e==='recuento'){toast('Recuento pedido: activá "Recuento ciego" y recontá '+v.sku);}render()}
 function cero(){
@@ -403,7 +404,178 @@ function aprobarTodo(t){if(cloudUser?.rol!=='admin')return toast('Solo administr
 function exporta(t){if(cloudUser?.rol!=='admin')return toast('Solo administrador puede exportar ajustes');const c=calc(),l=c.L.filter(v=>(t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE')&&v.aj?.aprobado&&!v.aj.exportado_at);if(!l.length)return toast('Nada aprobado sin exportar');
  const rows=l.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Talle:v.talle,'Stock sistema':v.sis,'Stock físico':v.phys,Diferencia:v.d,Cantidad:Math.abs(v.d),Responsable:v.aj.responsable,Estado:'Aprobado'}));
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),t);XLSX.writeFile(wb,`${t}_${c.s.sucursal}_${new Date().toISOString().slice(0,10)}.xlsx`);l.forEach(v=>{v.aj.exportado_at=now();up('ajustes',v.aj)});render()}
-function repo(){const c=calc();if(!c)return;const rows=c.L.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Marca:v.marca,Categoria:v.categoria,Talle:v.talle,Sistema:v.sis,Fisico:v.n?v.phys:'',Diferencia:v.n?v.d:'',Estado:v.st}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Conciliacion');XLSX.writeFile(wb,'conciliacion.xlsx')}
+
+function repo() {
+  const c = calc();
+  if (!c) return toast('Primero seleccioná una sesión de inventario');
+  if (typeof XLSX === 'undefined') return toast('No se pudo cargar la librería Excel');
+
+  // Lee los datos de la sesión actual; no cambia conteos ni ajustes.
+  const datos = c.L.map(v => ({
+    Sucursal: c.s.sucursal,
+    SKU: String(v.sku ?? ''),
+    Producto: v.nombre || '',
+    Marca: v.marca || '',
+    Categoria: v.categoria || '',
+    Talle: String(v.talle ?? ''),
+    'Stock sistema': Number(v.sis || 0),
+    'Stock fisico': v.n ? Number(v.phys || 0) : '',
+    Diferencia: v.n && !v.unk ? Number(v.d || 0) : '',
+    Estado: v.st === 'NI' ? 'NO IDENTIFICADO' : v.st,
+    'Talle nuevo': v.nuevoTalle ? 'SI' : 'NO',
+    'Conteo realizado': v.n ? 'SI' : 'NO',
+    'Estado revision': v.m || '',
+    'Tipo ajuste': v.st === 'FALTANTE' ? 'SALIDA' : v.st === 'SOBRANTE' ? 'ENTRADA' : '',
+    'Unidades a ajustar': ['FALTANTE', 'SOBRANTE'].includes(v.st) ? Math.abs(v.d) : '',
+    'Estado ajuste': v.aj?.aprobado ? (v.aj.exportado_at ? 'EXPORTADO' : 'APROBADO') : ['FALTANTE', 'SOBRANTE'].includes(v.st) ? 'PENDIENTE DE APROBACION' : ''
+  }));
+
+  const grupos = {
+    'Todos': datos,
+    'Coinciden': datos.filter(r => r.Estado === 'COINCIDE'),
+    'Faltantes': datos.filter(r => r.Estado === 'FALTANTE'),
+    'Sobrantes': datos.filter(r => r.Estado === 'SOBRANTE'),
+    'Pendientes': datos.filter(r => r.Estado === 'PENDIENTE'),
+    'No identificados': datos.filter(r => r.Estado === 'NO IDENTIFICADO'),
+    'Fisico cero': datos.filter(r => r['Conteo realizado'] === 'SI' && r['Stock fisico'] === 0),
+    'Sistema cero': datos.filter(r => r['Stock sistema'] === 0 && r.Estado !== 'NO IDENTIFICADO'),
+    'Bajas confirmadas': datos.filter(r => r['Conteo realizado'] === 'SI' && r['Stock fisico'] === 0 && r['Stock sistema'] > 0),
+    'Talles nuevos': datos.filter(r => r['Talle nuevo'] === 'SI'),
+    'Recuentos': datos.filter(r => r['Estado revision'] === 'recuento'),
+    'Ajustes': datos.filter(r => r.Estado === 'FALTANTE' || r.Estado === 'SOBRANTE')
+  };
+
+  const resumen = [
+    { Concepto: 'Sesion', Valor: c.s.nombre || c.s.id },
+    { Concepto: 'Sucursal', Valor: c.s.sucursal },
+    { Concepto: 'Fecha de corte', Valor: c.s.corte || '' },
+    { Concepto: 'Fecha del reporte', Valor: new Date().toLocaleString('es-PY') },
+    { Concepto: 'Total variantes', Valor: datos.length },
+    { Concepto: 'Variantes contadas', Valor: datos.filter(r => r['Conteo realizado'] === 'SI').length },
+    { Concepto: 'Unidades en sistema', Valor: datos.filter(r => r.Estado !== 'NO IDENTIFICADO').reduce((a, r) => a + r['Stock sistema'], 0) },
+    { Concepto: 'Unidades fisicas registradas', Valor: datos.reduce((a, r) => a + (r['Stock fisico'] === '' ? 0 : r['Stock fisico']), 0) },
+    ...Object.entries(grupos).map(([hoja, filas]) => ({ Concepto: hoja, Valor: filas.length }))
+  ];
+
+  const wb = XLSX.utils.book_new();
+
+  function hoja(nombre, filas, columnas) {
+    const ws = filas.length
+      ? XLSX.utils.json_to_sheet(filas, { header: columnas })
+      : XLSX.utils.aoa_to_sheet([columnas]);
+
+    ws['!cols'] = columnas.map(col => ({
+      wch: Math.min(35, Math.max(13, col.length + 3))
+    }));
+
+    XLSX.utils.book_append_sheet(wb, ws, nombre);
+  }
+
+  hoja('Resumen', resumen, ['Concepto', 'Valor']);
+
+  const columnas = Object.keys(datos[0] || {
+    Sucursal:'', SKU:'', Producto:'', Marca:'', Categoria:'', Talle:'',
+    'Stock sistema':0, 'Stock fisico':'', Diferencia:'', Estado:'',
+    'Talle nuevo':'', 'Conteo realizado':'', 'Estado revision':'',
+    'Tipo ajuste':'', 'Unidades a ajustar':'', 'Estado ajuste':''
+  });
+
+  Object.entries(grupos).forEach(([nombre, filas]) =>
+    hoja(nombre, filas, columnas)
+  );
+
+  const lecturas = S.counts
+    .filter(r => r.sesion_id === c.s.id)
+    .map(r => ({
+      SKU: String(r.sku ?? ''),
+      Talle: String(r.talle ?? ''),
+      Cantidad: Number(r.cantidad || 0),
+      Sector: r.sector || '',
+      Operador: r.operador || '',
+      Metodo: r.metodo || '',
+      Tipo: r.tipo || '',
+      Anulado: r.anulado ? 'SI' : 'NO',
+      Fecha: r.created_at || ''
+    }));
+
+  hoja('Lecturas', lecturas, [
+    'SKU','Talle','Cantidad','Sector','Operador',
+    'Metodo','Tipo','Anulado','Fecha'
+  ]);
+
+  const movimientos = S.mov
+    .filter(r => r.sesion_id === c.s.id)
+    .map(r => ({
+      SKU: String(r.sku ?? ''),
+      Talle: String(r.talle ?? ''),
+      Cantidad: Number(r.cantidad || 0),
+      Fecha: r.created_at || ''
+    }));
+
+  hoja('Movimientos', movimientos, [
+    'SKU','Talle','Cantidad','Fecha'
+  ]);
+
+  const origen = S.stock
+    .filter(r =>
+      r.sucursal === c.s.sucursal &&
+      (r.imp || r.importacion_id) === c.s.importacion_id
+    )
+    .map(r => ({
+      SKU: String(r.sku ?? ''),
+      Producto: r.nombre || '',
+      Marca: r.marca || '',
+      Categoria: r.categoria || '',
+      Talle: String(r.talle ?? ''),
+      Cantidad: Number(r.cantidad || 0),
+      'Codigo de barras': String(r.barcode || ''),
+      Costo: r.costo ?? ''
+    }));
+
+  hoja('Excel origen', origen, [
+    'SKU','Producto','Marca','Categoria','Talle',
+    'Cantidad','Codigo de barras','Costo'
+  ]);
+
+  const guardados = S.ajustes
+    .filter(r => r.sesion_id === c.s.id)
+    .map(r => ({
+      SKU: String(r.sku ?? ''),
+      Talle: String(r.talle ?? ''),
+      Tipo: r.tipo || '',
+      Cantidad: Number(r.cantidad || 0),
+      Aprobado: r.aprobado ? 'SI' : 'NO',
+      Responsable: r.responsable || '',
+      'Fecha aprobacion': r.aprobado_at || '',
+      'Fecha exportacion': r.exportado_at || ''
+    }));
+
+  hoja('Ajustes guardados', guardados, [
+    'SKU','Talle','Tipo','Cantidad','Aprobado',
+    'Responsable','Fecha aprobacion','Fecha exportacion'
+  ]);
+
+  const sectores = S.sectores
+    .filter(r => r.sesion_id === c.s.id)
+    .map(r => ({
+      Sector: r.nombre || '',
+      Cerrado: r.cerrado ? 'SI' : 'NO',
+      Responsable: r.cerrado_por || ''
+    }));
+
+  hoja('Sectores', sectores, [
+    'Sector','Cerrado','Responsable'
+  ]);
+
+  const archivo =
+    'Inventario_' +
+    String(c.s.sucursal).replace(/[^a-zA-Z0-9_-]/g, '_') +
+    '_' + new Date().toISOString().slice(0, 10) +
+    '.xlsx';
+
+  XLSX.writeFile(wb, archivo);
+}
+
 // ---------- datos / importación ----------
 const AL={sucursal:['sucursal','local','tienda','deposito'],sku:['sku','codigo','cod','articulo','referencia','modelo'],nombre:['nombre','producto','descripcion','detalle'],marca:['marca'],categoria:['categoria','rubro','familia'],talle:['talle','talla','size','numero'],cantidad:['cantidad','stock','existencia','qty','saldo'],barcode:['codigo de barras','barcode','ean','codbarras','codigobarras','upc'],costo:['costo','precio costo']};
 function vDatos(){const s=stats();const currentUrl=location.protocol==='https:'?location.origin+location.pathname:'';
