@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Inventario · Nápoles Store</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f4f4f2;--card:#fff;--tx:#1d1d1b;--mu:#76766f;--bd:#deded8;--ac:#1f3a5f;--ok:#2e7d4f;--fa:#c0392b;--so:#c27c0e;--pe:#8a8a84;--ni:#7b3fa0}
+@media(prefers-color-scheme:dark){:root{--bg:#161614;--card:#222220;--tx:#eeeee8;--mu:#a0a09a;--bd:#38382f;--ac:#6f9bd1}}
+*{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:var(--bg);color:var(--tx);padding-bottom:76px}
+header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--bd);padding:8px 12px;z-index:5}
+header b{font-size:15px}#hs{color:var(--mu);font-size:13px}
+.bar{height:8px;background:var(--bd);border-radius:4px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);width:0}
+main{padding:10px;max-width:820px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:10px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:none;color:var(--mu);padding:14px 4px;font-size:14px}nav button.on{color:var(--ac);font-weight:700;box-shadow:inset 0 3px var(--ac)}
+button,select,input{font:inherit}button.b{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:12px 14px}button.g{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:10px 12px}
+input,select{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+.r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.r>*{flex:1}.r>.n{flex:none}label{font-size:12px;color:var(--mu);display:block;margin:6px 0 2px}
+.tabs{display:flex;gap:6px;margin-bottom:8px}.tabs button{flex:1;padding:10px 2px;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;font-size:13px}.tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.last{font-size:18px;font-weight:700}.mu{color:var(--mu);font-size:13px}.big{font-size:34px;font-weight:800}
+.tl{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--bd)}.tl .t{flex:1;font-weight:700}
+.tl button{width:54px;height:54px;font-size:26px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}.tl input{width:66px;text-align:center;font-size:20px;font-weight:700}
+.tag{display:inline-block;padding:2px 8px;border-radius:10px;color:#fff;font-size:12px;font-weight:700}
+.COINCIDE{background:var(--ok)}.FALTANTE{background:var(--fa)}.SOBRANTE{background:var(--so)}.PENDIENTE{background:var(--pe)}.NI{background:var(--ni)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-bottom:1px solid var(--bd);text-align:left}
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:20px;z-index:9;display:none;max-width:90%}
+.flash{animation:f .4s}@keyframes f{from{background:#2e7d4f55}}video{width:100%;border-radius:8px;background:#000;max-height:240px}.hide{display:none}.k{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.k div{text-align:center}
+</style></head><body>
+<header><div class="r"><b id="hb">Inventario</b><span id="hs" class="n"></span></div><div class="bar"><i id="pg"></i></div></header>
+<div id="toast"></div>
+<main>
+<section id="v-c">
+<details class="card" id="setup" open><summary><b id="sumry">Configurar conteo</b></summary>
+<label>Sesión de inventario</label><div class="r"><select id="ses"></select><button class="g n" onclick="nuevaSes()">+ Nueva</button></div>
+<div class="r"><div><label>Sector / zona</label><input id="sec" list="secs" placeholder="Ej: Depósito A" onchange="cfg()"><datalist id="secs"></datalist></div>
+<div><label>Responsable</label><input id="ope" placeholder="Tu nombre" onchange="cfg()"></div></div>
+<div class="r" style="margin-top:8px"><button class="g" id="bsec" onclick="cerrarSector()">Cerrar sector</button><button class="g" id="brec" onclick="toggleRec()">Recuento ciego: NO</button></div></details>
+<div class="tabs" id="mt"></div>
+<div class="card"><div class="mu">Último registro</div><div class="last" id="lt">—</div><div class="r"><div class="big" id="lq">0</div><button class="g n" onclick="undo()">↶ Deshacer</button></div>
+<div class="r"><button class="g" id="bm" onclick="toggleG()">Modo: unitario (+1)</button><button class="g" onclick="hf=!hf;this.textContent='Voz alta: '+(hf?'SÍ':'NO')">Voz alta: NO</button></div></div>
+<div id="pane"></div>
+<div class="card" id="pick" style="display:none"></div>
+<div class="card"><b>Últimas lecturas</b><div id="hist"></div></div>
+</section>
+<section id="v-a" class="hide"></section><section id="v-j" class="hide"></section><section id="v-d" class="hide"></section>
+</main>
+<nav><button data-t="c" class="on">Conteo</button><button data-t="a">Avance</button><button data-t="j">Ajustes</button><button data-t="d">Datos</button></nav>
+<script>
+const $=i=>document.getElementById(i),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
+ K=(s,k,t)=>`${s}|${String(k).trim().toUpperCase()}|${String(t||'').trim().toLowerCase()}`,uid=()=>crypto.randomUUID(),now=()=>new Date().toISOString();
+const TB={conteos:'counts',marcas:'marks',ajustes:'ajustes',sectores:'sectores',sesiones:'sesiones',movimientos:'mov'};
+let S=JSON.parse(localStorage.getItem('inv')||'null')||{stock:[],counts:[],marks:[],ajustes:[],sectores:[],sesiones:[],mov:[],cfg:{url:'',key:'',ses:'',sec:'',ope:''},g:false};
+let sb=null,mode='scan',hf=false,rec=false,sel=null,tab='c',lastScan=['',0],lastUnk=null,IMP=null,flt='',fst='';
+const save=()=>{try{localStorage.setItem('inv',JSON.stringify(S))}catch(e){toast('Memoria llena: sincroniza y limpia')}};
+function toast(m,ms=1800){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',ms)}
+let AC;function beep(ok=true){try{AC=AC||new AudioContext();const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=ok?880:200;g.gain.value=.15;o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+(ok?.08:.3))}catch(e){}navigator.vibrate&&navigator.vibrate(ok?30:[80,40,80])}
+function say(t){if(hf&&window.speechSynthesis){const u=new SpeechSynthesisUtterance(t);u.lang='es-ES';speechSynthesis.speak(u)}}
+const cur=()=>S.sesiones.find(s=>s.id===S.cfg.ses);
+// ---------- sync ----------
+function conn(){if(S.cfg.url&&S.cfg.key&&window.supabase){try{sb=supabase.createClient(S.cfg.url,S.cfg.key)}catch(e){sb=null}}}
+async function push(){if(!sb||!navigator.onLine)return;for(const[t,k]of Object.entries(TB)){const d=S[k].filter(r=>r._d);for(let i=0;i<d.length;i+=300){const ch=d.slice(i,i+300),{error}=await sb.from(t).upsert(ch.map(({_d,...r})=>r));if(error){console.warn(t,error);return}ch.forEach(r=>delete r._d)}}save();stat()}
+async function all(q){let o=[],f=0;for(;;){const{data,error}=await q().range(f,f+999);if(error)throw error;o=o.concat(data);if(data.length<1000)return o;f+=1000}}
+async function pull(){if(!sb||!navigator.onLine)return;try{await push();
+ S.sesiones=mrg(S.sesiones,await all(()=>sb.from('sesiones').select('*')));const s=cur();if(!s){render();return}
+ for(const[t,k]of Object.entries(TB)){if(t==='sesiones')continue;S[k]=mrg(S[k],await all(()=>sb.from(t).select('*').eq('sesion_id',s.id)),s.id)}
+ if(s.importacion_id&&!S.stock.some(r=>r.imp===s.importacion_id)){S.stock=(await all(()=>sb.from('stock_oficial').select('*').eq('importacion_id',s.importacion_id).order('id'))).map(r=>({...r,imp:r.importacion_id}))}
+ save();render();stat('ok')}catch(e){stat('error: '+(e.message||e))}}
+function mrg(loc,rem,ses){const d=new Map(loc.filter(r=>r._d).map(r=>[r.id,r])),o=rem.map(r=>d.get(r.id)||r);const ids=new Set(rem.map(r=>r.id));return o.concat(loc.filter(r=>r._d&&!ids.has(r.id)),ses?loc.filter(r=>!r._d&&r.sesion_id!==ses):[])}
+function up(k,row){row._d=1;const i=S[k].findIndex(r=>r.id===row.id);i<0?S[k].push(row):S[k][i]=row;save();push()}
+const stat=m=>{$('hs').textContent=(sb?'☁ ':'💾 ')+(S.counts.some(r=>r._d)?'pendiente sync':'')+(m&&m!=='ok'?' '+m:'')};
+// ---------- cálculo ----------
+function calc(){const s=cur();if(!s)return null;const V=new Map();
+ S.stock.forEach(r=>{if(r.sucursal===s.sucursal)V.set(K(r.sucursal,r.sku,r.talle),{...r,sis:+r.cantidad||0,phys:0,n:0,sec:{}})});
+ S.mov.filter(m=>m.sesion_id===s.id).forEach(m=>{const v=V.get(K(s.sucursal,m.sku,m.talle));if(v)v.sis+=+m.cantidad});
+ const C=S.counts.filter(c=>c.sesion_id===s.id&&!c.anulado),R=new Set(C.filter(c=>c.tipo==='recuento').map(c=>K(c.sucursal,c.sku,c.talle)));
+ C.forEach(c=>{const k=K(c.sucursal,c.sku,c.talle);let v=V.get(k);if(!v){v={sku:c.sku,nombre:'NO IDENTIFICADO',marca:'',categoria:'',talle:c.talle,sis:0,phys:0,n:0,sec:{},unk:1};V.set(k,v)}
+  v.n++;if(R.has(k)&&c.tipo!=='recuento')return;v.phys+=+c.cantidad;v.sec[c.sector||'-']=(v.sec[c.sector||'-']||0)+ +c.cantidad});
+ const M=new Map(S.marks.filter(m=>m.sesion_id===s.id).map(m=>[m.id,m.estado])),A=new Map(S.ajustes.filter(a=>a.sesion_id===s.id).map(a=>[a.id,a]));
+ const L=[...V].map(([k,v])=>{v.k=k;v.d=v.phys-v.sis;v.st=v.unk?'NI':!v.n?'PENDIENTE':v.d===0?'COINCIDE':v.d<0?'FALTANTE':'SOBRANTE';v.m=M.get(`${s.id}|${k}`);v.aj=A.get(`${s.id}|${k}`);return v});return{s,V,L,C}}
+function stats(){const c=calc();if(!c)return null;const o={tot:0,ok:0,phys:0,COINCIDE:0,FALTANTE:0,SOBRANTE:0,PENDIENTE:0,NI:0,rec:0};
+ c.L.forEach(v=>{if(!v.unk){o.tot++;if(v.n)o.ok++}o[v.st]++;o.phys+=v.phys;if(v.m==='recuento')o.rec++});return{...c,o}}
+// ---------- registro ----------
+function lockedSec(s,sec){return S.sectores.some(x=>x.id===`${s}|${sec}`&&x.cerrado)}
+function add(v,q,metodo,unk){const s=cur();if(!s)return toast('Elegí una sesión');const sec=S.cfg.sec||'General';
+ if(lockedSec(s.id,sec)){beep(false);return toast('Sector cerrado 🔒')}
+ if(!S.cfg.ope){beep(false);$('setup').open=true;return toast('Falta el responsable')}
+ const r={id:uid(),sesion_id:s.id,sucursal:s.sucursal,sector:sec,operador:S.cfg.ope,sku:v.sku,talle:v.talle||'',cantidad:q,metodo,tipo:rec?'recuento':'conteo',anulado:false,desconocido:!!unk,created_at:now()};
+ up('counts',r);beep();$('lt').textContent=`${v.sku} · ${v.nombre||''} · talle ${v.talle||'-'}`;$('lq').textContent=(q>0?'+':'')+q;$('lq').parentNode.classList.add('flash');setTimeout(()=>$('lq').parentNode.classList.remove('flash'),400);
+ say(`${q} ${v.talle?'talle '+v.talle:''}`);hist();bar();if(sel&&sel.sku===v.sku)selUI()}
+function undo(){const s=cur();const r=[...S.counts].reverse().find(c=>c.sesion_id===s?.id&&!c.anulado&&c.operador===S.cfg.ope);if(!r)return toast('Nada para deshacer');if(lockedSec(s.id,r.sector))return toast('Sector cerrado');r.anulado=true;up('counts',r);toast('Deshecho: '+r.sku+' '+r.talle);$('lt').textContent='—';$('lq').textContent='0';hist();bar();selUI()}
+function hist(){const s=cur();$('hist').innerHTML=S.counts.filter(c=>c.sesion_id===s?.id&&!c.anulado).slice(-8).reverse().map(c=>`<div class="tl"><span class="t">${esc(c.sku)} <span class="mu">${esc(c.talle)}</span></span><span>${c.cantidad>0?'+':''}${c.cantidad}</span><span class="mu">${esc(c.metodo)} ${esc(c.sector)}</span></div>`).join('')||'<div class="mu">Sin lecturas</div>'}
+function bar(){const s=stats();if(!s)return;const p=s.o.tot?Math.round(s.o.ok/s.o.tot*100):0;$('pg').style.width=p+'%';$('hb').textContent=`${s.s.nombre} · ${s.s.sucursal}`;$('sumry').textContent=`${S.cfg.sec||'Sin sector'} · ${S.cfg.ope||'Sin responsable'}`;
+ $('hs').textContent=`${p}% · ${s.o.ok}/${s.o.tot} var · ${s.o.phys} u`+(S.counts.some(r=>r._d)?' ⏳':'')}
+// ---------- búsqueda de productos ----------
+let IDX=null;function idx(){const s=cur(),B=new Map,K2=new Map;S.stock.forEach(r=>{if(r.sucursal!==s?.sucursal)return;const sk=String(r.sku).toUpperCase();if(!K2.has(sk))K2.set(sk,[]);K2.get(sk).push(r);if(r.barcode)B.set(String(r.barcode).trim(),r)});return IDX={B,K:K2}}
+function scan(code){code=String(code).trim();if(!code)return;const n=Date.now();if(code===lastScan[0]&&n-lastScan[1]<250)return;lastScan=[code,n];
+ const I=IDX||idx();let v=I.B.get(code);const up_=code.toUpperCase();
+ if(!v){const m=up_.match(/^(.+?)[\s\-_/](\d+(?:[.,]\d+)?|[A-Z0-9]{1,4})$/);if(m&&I.K.has(m[1])){v=I.K.get(m[1]).find(r=>tm(r.talle,m[2]))}}
+ if(!v&&I.K.has(up_)){const l=I.K.get(up_);if(l.length===1)v=l[0];else{sel={sku:up_,nombre:l[0].nombre};beep();pickSku();return toast('Elegí el talle')}}
+ if(!v){beep(false);lastUnk=code;$('pick').style.display='block';$('pick').innerHTML=`<b>No reconocido:</b> ${esc(code)}<div class="r" style="margin-top:8px"><button class="g" onclick="addUnk()">Registrar como NO IDENTIFICADO</button><button class="g" onclick="$('pick').style.display='none'">Ignorar</button></div>`;return}
+ if(S.g){sel=v;$('pick').style.display='block';$('pick').innerHTML=`<b>${esc(v.sku)}</b> ${esc(v.nombre)} · talle ${esc(v.talle)}<div class="r" style="margin-top:8px"><input id="gq" type="number" inputmode="numeric" min="0" placeholder="Cantidad" autofocus><button class="b n" onclick="gOk()">Confirmar</button></div>`;$('gq').focus();$('gq').onkeydown=e=>e.key==='Enter'&&gOk();beep();return}
+ add(v,1,mode==='cam'?'camara':'escaner')}
+const tm=(a,b)=>{const f=x=>String(x).toLowerCase().replace(/\s*us$/,'').trim().split(/\s+/)[0];return f(a)===f(b)};
+function addUnk(){add({sku:lastUnk,talle:'',nombre:'NO IDENTIFICADO'},1,'escaner',1);$('pick').style.display='none'}
+function gOk(){const q=parseInt($('gq').value);if(isNaN(q)||q<0)return;add(sel,q,'escaner');$('pick').style.display='none';sel=null;focusScan()}
+function toggleG(){S.g=!S.g;$('bm').textContent='Modo: '+(S.g?'agrupado (indico cantidad)':'unitario (+1)');save()}
+// ---------- paneles de captura ----------
+const MODES=[['scan','Escáner'],['cam','Cámara'],['voz','Voz'],['foto','Foto'],['man','Manual']];
+function setMode(m){mode=m;stopCam();$('mt').innerHTML=MODES.map(([k,n])=>`<button class="${k===m?'on':''}" onclick="setMode('${k}')">${n}</button>`).join('');const p=$('pane');
+ if(m==='scan'){p.innerHTML=`<div class="card"><label>Lector Bluetooth/USB: apuntá y disparar (o escribí el código)</label><input id="si" autocomplete="off" inputmode="none" placeholder="Código de barras o SKU"></div>`;$('si').onkeydown=e=>{if(e.key==='Enter'){scan($('si').value);$('si').value=''}};focusScan()}
+ if(m==='cam'){p.innerHTML=`<div class="card"><video id="vd" playsinline muted></video><div class="mu" id="cs"></div></div>`;startCam()}
+ if(m==='voz'){p.innerHTML=`<div class="card"><button class="b" style="width:100%;font-size:20px" id="mic" onclick="micTog()">🎤 Activar micrófono</button><div id="tr" class="mu" style="margin:8px 0">Ej: "SKU ABC123, talle 8, cuatro unidades"</div><div class="r"><input id="vt" placeholder="o escribí el comando"><button class="g n" onclick="cmd($('vt').value)">Enviar</button></div></div>`}
+ if(m==='foto'){p.innerHTML=`<div class="card"><input type="file" id="ph" accept="image/*" capture="environment" multiple onchange="foto(this.files)"><div id="fo" class="mu" style="margin-top:8px">Fotografiá la etiqueta o código de barras. No se crean registros de calzado sin etiqueta legible.</div></div>`}
+ if(m==='man'){p.innerHTML=`<div class="card"><input id="q" placeholder="Buscar SKU, nombre o marca" autocomplete="off" oninput="busc(this.value)"><div id="qr"></div><div id="tal"></div></div>`;selUI()}}
+function focusScan(){if(mode==='scan'&&$('si')&&!/INPUT/.test(document.activeElement.tagName))$('si').focus()}
+document.addEventListener('keydown',e=>{if(tab!=='c'||mode!=='scan'||e.target.tagName==='INPUT'||e.ctrlKey||e.metaKey)return;if($('si'))$('si').focus()});
+let stream,camT,camSeen=0,camLast='';
+async function startCam(){if(!('BarcodeDetector' in window)){$('cs').textContent='Este navegador no lee códigos con cámara. Usá Chrome en Android, lector, foto o manual.';return}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});const v=$('vd');v.srcObject=stream;await v.play();const d=new BarcodeDetector();$('cs').textContent='Leyendo…';
+ camT=setInterval(async()=>{try{const r=await d.detect(v);if(!r.length)return;const c=r[0].rawValue,n=Date.now();if(c===camLast&&n-camSeen<700){camSeen=n;return}camLast=c;camSeen=n;scan(c)}catch(e){}},150)}catch(e){$('cs').textContent='Sin permiso de cámara: '+e.message}}
+function stopCam(){clearInterval(camT);stream&&stream.getTracks().forEach(t=>t.stop());stream=null}
+// producto manual
+function busc(q){q=q.toLowerCase().trim();const s=cur(),m=new Map;if(q.length>1)S.stock.forEach(r=>{if(r.sucursal!==s?.sucursal||m.size>=12)return;if((r.sku+' '+r.nombre+' '+r.marca).toLowerCase().includes(q)&&!m.has(String(r.sku).toUpperCase()))m.set(String(r.sku).toUpperCase(),r)});
+ $('qr').innerHTML=[...m.values()].map(r=>`<div class="tl" onclick="pickSkuV('${esc(String(r.sku).toUpperCase())}')"><span class="t">${esc(r.sku)}</span><span class="mu">${esc(r.nombre)}</span></div>`).join('')}
+function pickSkuV(sku){const l=(IDX||idx()).K.get(sku);sel={sku,nombre:l[0].nombre};if(mode!=='man')setMode('man');$('qr').innerHTML='';selUI()}
+function pickSku(){if(mode!=='man')setMode('man');selUI()}
+function selUI(){const t=$('tal');if(!t||!sel)return;const c=calc();const l=(IDX||idx()).K.get(sel.sku)||[];t.innerHTML=`<div class="last" style="margin-top:8px">${esc(sel.sku)} <span class="mu">${esc(sel.nombre)}</span></div>`+l.map(r=>{const v=c.V.get(K(r.sucursal,r.sku,r.talle));return`<div class="tl"><span class="t">${esc(r.talle)}<br><span class="mu">${rec?'sistema oculto':'sis: '+v.sis}</span></span><button onclick="stp(this,-1)">−</button><input type="number" inputmode="numeric" value="${v.phys}" data-t="${esc(r.talle)}" data-p="${v.phys}" onchange="setQ(this)"><button onclick="stp(this,1)">+</button></div>`}).join('')+`<button class="b" style="width:100%;margin-top:8px" onclick="sel=null;$('tal').innerHTML='';$('q').value='';$('q').focus()">Siguiente producto</button>`}
+function stp(b,d){const i=b.parentNode.querySelector('input'),r=(IDX||idx()).K.get(sel.sku).find(x=>x.talle===i.dataset.t);if(+i.value+d<0)return;add(r,d,'manual')}
+function setQ(i){const r=(IDX||idx()).K.get(sel.sku).find(x=>x.talle===i.dataset.t),d=(+i.value||0)-(+i.dataset.p);if(i.value===''||+i.value<0)return;if(d===0&&+i.dataset.p===0)add(r,0,'manual');else if(d!==0)add(r,d,'manual')}
+// ---------- voz ----------
+const NUM={cero:0,un:1,uno:1,una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,trece:13,catorce:14,quince:15,veinte:20};
+let rg,micOn=false;
+function micTog(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){$('tr').textContent='Tu navegador no tiene reconocimiento de voz. Usá escáner, foto o manual (o escribí el comando abajo).';return}
+ if(micOn){rg.stop();return}rg=new SR;rg.lang='es-ES';rg.interimResults=false;rg.onstart=()=>{micOn=true;$('mic').textContent='⏹ Escuchando… tocá para parar'};rg.onend=()=>{micOn=false;$('mic')&&($('mic').textContent='🎤 Activar micrófono')};rg.onerror=e=>$('tr').textContent='Micrófono: '+e.error;
+ rg.onresult=e=>{const t=e.results[e.results.length-1][0].transcript;$('tr').textContent='“'+t+'”';cmd(t)};rg.start()}
+const nrm=t=>t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[,.¿?¡!]/g,' ');
+function num(x){x=(x||'').trim();return /^\d+$/.test(x)?+x:NUM[x]}
+function lastRec(){const s=cur();return[...S.counts].reverse().find(c=>c.sesion_id===s?.id&&!c.anulado)}
+function cmd(raw){const t=nrm(raw||'').trim(),I=IDX||idx();if(!t)return;let m;
+ if(/deshacer/.test(t))return undo();
+ if(/(finalizar|cerrar).*(conteo|sector)/.test(t))return cerrarSector();
+ if(m=t.match(/busca(?:r|me)?\s+(.+)/)){setMode('man');$('q').value=m[1];busc(m[1]);return}
+ if(/talles/.test(t)&&/(mostra|ver|disponible)/.test(t)){const l=lastRec();if(!l)return toast('Sin producto activo');pickSkuV(String(l.sku).toUpperCase());return}
+ if(m=t.match(/corregi.*?(?:son|es|a)\s+(\w+)/)){const q=num(m[1]),l=lastRec();if(q==null||!l)return toast('No entendí la cantidad');l.anulado=true;up('counts',l);add({sku:l.sku,talle:l.talle},q,'voz');return}
+ if(/(suma|agrega|anade|mas).*(unidad|uno|una)/.test(t)&&/(mas|ultimo|talle)/.test(t)&&!/sku/.test(t)){const l=lastRec();if(!l)return toast('Sin registro previo');add({sku:l.sku,talle:l.talle},1,'voz');return}
+ let sku=(t.match(/sku\s+(.+?)(?:\s+talle|\s+talla|$)/)||[])[1];sku=sku?sku.replace(/\s+/g,'').toUpperCase():(/mismo\s+producto/.test(t)&&lastRec()?String(lastRec().sku).toUpperCase():null);
+ const tl=(t.match(/tall?e\s+([a-z0-9]+(?:\s*[.,]\s*5)?)/)||[])[1],ca=(t.match(/(\w+)\s+unidad/)||[])[1],q=num(ca);
+ if(!sku||!tl||q==null)return toast('No entendí claro. Repetí: SKU, talle y cantidad.',3000);
+ const tv=isNaN(+tl)&&NUM[tl]!=null?String(NUM[tl]):tl,v=(I.K.get(sku)||[]).find(r=>tm(r.talle,tv));
+ if(!v)return beep(false),toast(`No existe ${sku} talle ${tv} en la sucursal`,3000);
+ $('pick').style.display='block';$('pick').innerHTML=`<b>Interpretado:</b> ${esc(v.sku)} ${esc(v.nombre)} · talle ${esc(v.talle)} · ${q} u.<div class="r" style="margin-top:8px"><button class="b" onclick="add(IDX.K.get('${esc(sku)}').find(r=>r.talle==='${esc(v.talle)}'),${q},'voz');$('pick').style.display='none'">Confirmar</button><button class="g" onclick="$('pick').style.display='none'">Cancelar</button></div>`;
+ if(hf)say(`${v.sku} talle ${v.talle}, ${q} unidades. Confirmá.`)}
+// ---------- fotos ----------
+let FO=[];
+async function foto(files){FO=[];$('fo').textContent='Leyendo…';for(const f of files){let found=false;
+ if('BarcodeDetector' in window){try{const bm=await createImageBitmap(f),r=await new BarcodeDetector().detect(bm);for(const x of r){const v=(IDX||idx()).B.get(x.rawValue.trim());FO.push({code:x.rawValue,v,q:1});found=true}}catch(e){}}
+ if(!found&&window.Tesseract===undefined){try{await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';s.onload=ok;s.onerror=no;document.head.appendChild(s)})}catch(e){}}
+ if(!found&&window.Tesseract){try{const{data}=await Tesseract.recognize(f,'spa'),I=IDX||idx();for(const w of new Set(data.text.toUpperCase().split(/[\s\n]+/))){if(w.length<4)continue;const v=I.B.get(w)||(I.K.get(w)||[])[0]&&(I.K.get(w).length===1?I.K.get(w)[0]:{sku:w,nombre:I.K.get(w)[0].nombre,talle:'',amb:1});if(v)FO.push({code:w,v,q:1})}}catch(e){}}}
+ fotoUI()}
+function fotoUI(){$('fo').innerHTML=FO.length?FO.map((x,i)=>`<div class="tl"><span class="t">${esc(x.code)}<br><span class="mu">${x.v&&!x.v.amb?esc(x.v.sku+' '+x.v.talle+' '+x.v.nombre):x.v?'Varios talles: usá búsqueda manual':'No está en catálogo'}</span></span><input type="number" value="${x.q}" min="0" style="width:64px" onchange="FO[${i}].q=+this.value"><button class="g n" onclick="FO.splice(${i},1);fotoUI()">✕</button></div>`).join('')+`<button class="b" style="width:100%;margin-top:8px" onclick="fotoOk()">Confirmar lista</button>`:'No se pudo leer ningún código. Sacá otra foto más cerca y con luz, o buscá manual.'}
+function fotoOk(){FO.filter(x=>x.v&&!x.v.amb).forEach(x=>add(x.v,x.q,'foto'));FO=[];$('fo').textContent='Cargado ✔'}
+// ---------- sesiones, sectores ----------
+function cfg(){S.cfg.sec=$('sec').value.trim();S.cfg.ope=$('ope').value.trim();save();bar();if(S.cfg.sec&&cur()){const id=`${cur().id}|${S.cfg.sec}`;if(!S.sectores.some(x=>x.id===id))up('sectores',{id,sesion_id:cur().id,nombre:S.cfg.sec,cerrado:false})}}
+function selSes(){S.cfg.ses=$('ses').value;S.cfg.sec='';$('sec').value='';IDX=null;save();pull();render()}
+function nuevaSes(){const imps=[...new Set(S.stock.map(r=>r.imp))];if(!S.stock.length)return toast('Primero importá el Excel en Datos'),go('d');
+ const suc=[...new Set(S.stock.map(r=>r.sucursal))],n=prompt('Nombre de la sesión','Inventario '+new Date().toLocaleDateString('es-PY'));if(!n)return;const su=suc.length===1?suc[0]:prompt('Sucursal exacta: '+suc.join(', '),suc[0]);if(!suc.includes(su))return toast('Sucursal inválida');
+ const s={id:uid(),nombre:n,sucursal:su,importacion_id:S.stock.find(r=>r.sucursal===su).imp,corte:now(),estado:'abierta',created_at:now()};up('sesiones',s);S.cfg.ses=s.id;IDX=null;save();render()}
+function cerrarSector(){const s=cur(),sec=S.cfg.sec;if(!s||!sec)return toast('Elegí sector');const id=`${s.id}|${sec}`,x=S.sectores.find(y=>y.id===id)||{id,sesion_id:s.id,nombre:sec};
+ if(x.cerrado){x.cerrado=false;up('sectores',x);return toast('Sector reabierto')}x.cerrado=true;x.cerrado_por=S.cfg.ope;up('sectores',x);toast('Sector cerrado 🔒');render()}
+function toggleRec(){rec=!rec;$('brec').textContent='Recuento ciego: '+(rec?'SÍ':'NO');selUI()}
+// ---------- avance ----------
+function vAvance(){const s=stats();if(!s)return'<div class="card">Elegí una sesión en Conteo.</div>';const o=s.o,sec={},op={};
+ s.C.forEach(c=>{sec[c.sector]=(sec[c.sector]||0)+ +c.cantidad;op[c.operador]=(op[c.operador]||0)+1});
+ const rows=s.L.filter(v=>(!fst||v.st===fst||(fst==='REC'&&v.m==='recuento'))&&(!flt||(v.sku+v.nombre+v.marca+v.categoria).toLowerCase().includes(flt))).slice(0,80);
+ return`<div class="card"><div class="k"><div><div class="big">${o.ok}/${o.tot}</div><span class="mu">variantes</span></div><div><div class="big">${o.phys}</div><span class="mu">unidades</span></div><div><div class="big">${o.tot?Math.round(o.ok/o.tot*100):0}%</div><span class="mu">cobertura</span></div></div>
+ <div class="r" style="margin-top:8px">${['COINCIDE','FALTANTE','SOBRANTE','PENDIENTE','NI'].map(k=>`<button class="tag ${k}" style="border:0;flex:none" onclick="fst='${k}';render()">${k==='NI'?'NO IDENT.':k} ${o[k]}</button>`).join('')}<button class="g n" onclick="fst='REC';render()">Recuento ${o.rec}</button><button class="g n" onclick="fst='';render()">Todos</button></div></div>
+ <div class="card"><b>Por sector</b> ${Object.entries(sec).map(([k,v])=>`<div class="tl"><span class="t">${esc(k)} ${S.sectores.some(x=>x.id===s.s.id+'|'+k&&x.cerrado)?'🔒':''}</span>${v} u</div>`).join('')||'—'}<br><b>Por operador</b> ${Object.entries(op).map(([k,v])=>`<div class="tl"><span class="t">${esc(k)}</span>${v} lecturas</div>`).join('')||'—'}</div>
+ <div class="card"><input placeholder="Filtrar por SKU, nombre, marca o categoría" value="${esc(flt)}" oninput="flt=this.value.toLowerCase();clearTimeout(window._f);window._f=setTimeout(render,300)">
+ <button class="g" style="width:100%;margin-top:8px" onclick="cero()">Confirmar 0 unidades en los PENDIENTES filtrados</button>
+ <table><tr><th>SKU / talle</th><th>Sis</th><th>Fís</th><th></th></tr>${rows.map(v=>`<tr><td>${esc(v.sku)} <span class="mu">${esc(v.talle)}<br>${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.n?v.phys:'—'}</td><td><span class="tag ${v.st}">${v.st==='NI'?'NO IDENT.':v.st}</span>${v.m?` <span class="mu">${v.m}</span>`:''}<br>${v.st==='FALTANTE'||v.st==='SOBRANTE'?`<button class="g" onclick="marca('${esc(v.k)}','recuento')">Recontar</button> <button class="g" onclick="marca('${esc(v.k)}','validado')">Validar</button>`:''}</td></tr>`).join('')}</table><div class="mu">Mostrando ${rows.length} (máx. 80)</div></div>`}
+function marca(k,e){const s=cur();const[,sku,talle]=k.split('|'),v=calc().V.get(k);up('marcas',{id:`${s.id}|${k}`,sesion_id:s.id,sucursal:s.sucursal,sku:v.sku,talle:v.talle,estado:e,por:S.cfg.ope,created_at:now()});if(e==='recuento'){toast('Recuento pedido: activá "Recuento ciego" y recontá '+v.sku);}render()}
+function cero(){const c=calc(),p=c.L.filter(v=>v.st==='PENDIENTE'&&(!flt||(v.sku+v.nombre+v.marca+v.categoria).toLowerCase().includes(flt))&&(!fst||fst==='PENDIENTE'));
+ if(!p.length)return toast('Sin pendientes');if(!flt&&!confirm(`Sin filtro: ${p.length} variantes pasan a CERO físico. ¿Seguro?`))return;if(flt&&!confirm(`${p.length} variantes filtradas quedan en CERO confirmado. ¿Confirmar?`))return;p.forEach(v=>add(v,0,'manual'));render()}
+// ---------- ajustes ----------
+function vAjustes(){const c=calc();if(!c)return'<div class="card">Elegí una sesión.</div>';const A=c.L.filter(v=>v.st==='FALTANTE'||v.st==='SOBRANTE'),en=A.filter(v=>v.d>0),sa=A.filter(v=>v.d<0);
+ const T=(t,l)=>`<div class="card"><div class="r"><b>${t} (${l.length})</b><button class="g n" onclick="aprobarTodo('${t}')">Aprobar todo</button><button class="b n" onclick="exporta('${t}')">Excel</button></div><table><tr><th>SKU/talle</th><th>Sis</th><th>Fís</th><th>Ajuste</th><th>Estado</th></tr>${l.map(v=>`<tr><td>${esc(v.sku)} ${esc(v.talle)}<br><span class="mu">${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.phys}</td><td>${Math.abs(v.d)}</td><td>${v.aj?.aprobado?(v.aj.exportado_at?'Exportado':'Aprobado'):`<button class="g" onclick="aprobar('${esc(v.k)}','${t}')">Aprobar</button>`}</td></tr>`).join('')}</table></div>`;
+ return`<div class="card mu">Corte: ${new Date(c.s.corte).toLocaleString('es-PY')}. Cargá ventas/ingresos posteriores en Datos antes de aprobar. Solo se ajustan variantes contadas; los pendientes nunca generan salida.</div>`+T('ENTRADAS',en)+T('SALIDAS',sa)}
+function aprobar(k,t){const c=calc(),v=c.V.get(k);if(v.m!=='validado'&&v.m!=='recuento'&&!confirm('Esta variante no está validada. ¿Aprobar igual?'))return;ap(v,t)}
+function ap(v,t){const s=cur();up('ajustes',{id:`${s.id}|${v.k}`,sesion_id:s.id,sucursal:s.sucursal,sku:v.sku,talle:v.talle,tipo:t==='ENTRADAS'?'ENTRADA':'SALIDA',cantidad:Math.abs(v.d),responsable:S.cfg.ope,aprobado:true,aprobado_at:now(),exportado_at:v.aj?.exportado_at||null,created_at:now()});render()}
+function aprobarTodo(t){if(!S.cfg.ope)return toast('Falta responsable');const c=calc(),l=c.L.filter(v=>t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE');if(l.length&&confirm(`Aprobar ${l.length} ajustes de ${t}?`))l.forEach(v=>ap(v,t))}
+function exporta(t){const c=calc(),l=c.L.filter(v=>(t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE')&&v.aj?.aprobado&&!v.aj.exportado_at);if(!l.length)return toast('Nada aprobado sin exportar');
+ const rows=l.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Talle:v.talle,'Stock sistema':v.sis,'Stock físico':v.phys,Diferencia:v.d,Cantidad:Math.abs(v.d),Responsable:v.aj.responsable,Estado:'Aprobado'}));
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),t);XLSX.writeFile(wb,`${t}_${c.s.sucursal}_${new Date().toISOString().slice(0,10)}.xlsx`);l.forEach(v=>{v.aj.exportado_at=now();up('ajustes',v.aj)});render()}
+function repo(){const c=calc();if(!c)return;const rows=c.L.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Marca:v.marca,Categoria:v.categoria,Talle:v.talle,Sistema:v.sis,Fisico:v.n?v.phys:'',Diferencia:v.n?v.d:'',Estado:v.st}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Conciliacion');XLSX.writeFile(wb,'conciliacion.xlsx')}
+// ---------- datos / importación ----------
+const AL={sucursal:['sucursal','local','tienda','deposito'],sku:['sku','codigo','cod','articulo','referencia','modelo'],nombre:['nombre','producto','descripcion','detalle'],marca:['marca'],categoria:['categoria','rubro','familia'],talle:['talle','talla','size','numero'],cantidad:['cantidad','stock','existencia','qty','saldo'],barcode:['codigo de barras','barcode','ean','codbarras','codigobarras','upc'],costo:['costo','precio costo']};
+function vDatos(){const s=stats();return`<div class="card"><b>Conexión Supabase</b><label>URL del proyecto</label><input id="cu" value="${esc(S.cfg.url)}" placeholder="https://xxxx.supabase.co"><label>Anon key</label><input id="ck" value="${esc(S.cfg.key)}"><button class="b" style="width:100%;margin-top:8px" onclick="S.cfg.url=$('cu').value.trim();S.cfg.key=$('ck').value.trim();save();conn();pull();toast('Conectando…')">Guardar y sincronizar</button><div class="mu">Sin esto funciona 100% local en este equipo.</div></div>
+<div class="card"><b>Importar stock (Excel/CSV)</b><div class="mu">Columnas: sucursal, sku, nombre, marca, categoría, talle, cantidad, código de barras, costo.</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leer(this.files[0])"><div id="im"></div></div>
+<div class="card"><b>Movimientos posteriores al corte</b><div class="mu">Excel con sku, talle, cantidad (ventas en negativo, ingresos en positivo).</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leerMov(this.files[0])"></div>
+<div class="card"><b>Reportes</b><button class="g" style="width:100%" onclick="repo()">Exportar conciliación completa (Excel)</button><div class="mu" style="margin-top:6px">${S.stock.length} filas de stock · ${S.counts.length} registros · ${S.sesiones.length} sesiones</div></div>`}
+async function leer(f){if(!f)return;const wb=XLSX.read(await f.arrayBuffer(),{type:'array'}),raw=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{raw:false,defval:''}),h=Object.keys(raw[0]||{}),map={};
+ const nm=x=>nrm(String(x)).trim();for(const[k,a]of Object.entries(AL))map[k]=h.find(x=>a.includes(nm(x)))||h.find(x=>a.some(y=>nm(x).includes(y)&&k!=='sku'));
+ const falta=['sku','talle','cantidad'].filter(k=>!map[k]);if(falta.length)return $('im').innerHTML='<b style="color:var(--fa)">Faltan columnas: '+falta.join(', ')+'</b>';
+ const seen=new Set,dup=[],err=[],rows=[];raw.forEach((r,i)=>{const o={};for(const k in map)o[k]=map[k]?String(r[map[k]]).trim():'';o.sucursal=o.sucursal||'Principal';const q=parseFloat(String(o.cantidad).replace(',','.'));if(!o.sku||isNaN(q)){err.push(i+2);return}o.cantidad=q;o.costo=parseFloat(String(o.costo).replace(',','.'))||null;const k=K(o.sucursal,o.sku,o.talle);if(seen.has(k)){dup.push(i+2);return}seen.add(k);rows.push(o)});
+ IMP={rows,n:f.name};$('im').innerHTML=`<div>${rows.length} variantes válidas · ${dup.length} duplicadas (se omiten) · ${err.length} con error (filas ${err.slice(0,8).join(', ')})<br>Sucursales: ${[...new Set(rows.map(r=>r.sucursal))].join(', ')}</div><button class="b" style="width:100%;margin-top:8px" onclick="impOk()">Confirmar importación</button>`}
+async function impOk(){const id=uid(),rows=IMP.rows;$('im').textContent='Importando…';
+ if(sb&&navigator.onLine){const e1=await sb.from('importaciones').insert({id,nombre:IMP.n,sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length});if(e1.error)return $('im').textContent='Error: '+e1.error.message+' ¿Corriste el SQL?';
+  for(let i=0;i<rows.length;i+=500){const e=await sb.from('stock_oficial').insert(rows.slice(i,i+500).map(r=>({...r,importacion_id:id})));if(e.error)return $('im').textContent='Error: '+e.error.message}}
+ S.stock=S.stock.filter(r=>false).concat(rows.map(r=>({...r,imp:id,importacion_id:id})));IDX=null;save();IMP=null;$('im').textContent=`✔ ${rows.length} variantes importadas. Creá una sesión en Conteo.`;toast('Importado')}
+async function leerMov(f){const s=cur();if(!s||!f)return toast('Elegí sesión');let n=0;const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+ XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{raw:false}).forEach(x=>{const o={};for(const y in x)o[nrm(y).trim()]=x[y];const q=parseFloat(String(o.cantidad).replace(',','.')),sk=String(o.sku||'').trim();if(sk&&!isNaN(q)){up('mov',{id:uid(),sesion_id:s.id,sku:sk,talle:String(o.talle||o.talla||'').trim(),cantidad:q,created_at:now()});n++}});toast(n+' movimientos cargados');render()}
+// ---------- vistas ----------
+function go(t){tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));['c','a','j','d'].forEach(x=>$('v-'+x).classList.toggle('hide',x!==t));if(t!=='c')stopCam();else if(mode==='cam')startCam();render()}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.t));
+function render(){IDX=null;$('ses').innerHTML=`<option value="">— elegir sesión —</option>`+S.sesiones.map(s=>`<option value="${s.id}" ${s.id===S.cfg.ses?'selected':''}>${esc(s.nombre)} · ${esc(s.sucursal)}</option>`).join('');$('ses').onchange=selSes;$('sec').value=S.cfg.sec||'';$('ope').value=S.cfg.ope||'';
+ $('secs').innerHTML=S.sectores.filter(x=>x.sesion_id===S.cfg.ses).map(x=>`<option value="${esc(x.nombre)}">`).join('');const L=lockedSec(S.cfg.ses,S.cfg.sec);$('bsec').textContent=L?'Reabrir sector 🔒':'Cerrar sector';
+ $('bm').textContent='Modo: '+(S.g?'agrupado (indico cantidad)':'unitario (+1)');
+ if(tab==='a')$('v-a').innerHTML=vAvance();if(tab==='j')$('v-j').innerHTML=vAjustes();if(tab==='d')$('v-d').innerHTML=vDatos();if(tab==='c'){hist();bar()}if(cur())bar();stat()}
+conn();setMode('scan');render();if(!S.stock.length||!S.sesiones.length)go('d');
+if(!S.cfg.ses&&S.sesiones.length===1){S.cfg.ses=S.sesiones[0].id;render()}
+setInterval(pull,10000);addEventListener('online',pull);pull();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http')){}
+</script></body></html>
