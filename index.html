@@ -57,8 +57,8 @@ const $=i=>document.getElementById(i),esc=s=>String(s??'').replace(/[&<>"]/g,c=>
 // OPCIONAL: para usar la misma configuración en todos los dispositivos,
 // rellená estas dos constantes con los datos públicos de Supabase ANTES de subir index.html a Cloudflare Pages.
 // Nunca pongas aquí una service_role, secret key ni una contraseña.
-const DEFAULT_SUPABASE_URL = '';
-const DEFAULT_SUPABASE_PUBLIC_KEY = '';
+const DEFAULT_SUPABASE_URL = 'https://ikybmqqfltagwuulrfni.supabase.co';
+const DEFAULT_SUPABASE_PUBLIC_KEY = 'sb_publishable_cMZK-5OhYFC5UQlQpjnNmw_b0aAbx6j';
 const TB={sesiones:'sesiones',sectores:'sectores',conteos:'counts',marcas:'marks',movimientos:'mov',ajustes:'ajustes'};
 function blankState(){return {stock:[],counts:[],marks:[],ajustes:[],sectores:[],sesiones:[],mov:[],cfg:{url:DEFAULT_SUPABASE_URL,key:DEFAULT_SUPABASE_PUBLIC_KEY,ses:'',sec:'',ope:'',appUrl:'',ownerId:''},g:false};}
 let S;try{S=JSON.parse(localStorage.getItem('inv')||'null')||blankState()}catch(e){S=blankState()}
