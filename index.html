@@ -31,15 +31,24 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 .auth-actions{display:flex;gap:8px;margin-top:8px}.auth-actions button{flex:1}
 .warn{color:var(--fa);font-size:13px}.oktext{color:var(--ok);font-size:13px}
 .flash{animation:f .4s}@keyframes f{from{background:#2e7d4f55}}video{width:100%;border-radius:8px;background:#000;max-height:240px}.hide{display:none}.k{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.k div{text-align:center}
+
+.profiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin:16px 0}
+.profile-btn{display:flex;flex-direction:column;align-items:center;gap:5px;padding:15px 8px;border:1px solid var(--bd);border-radius:13px;background:var(--card);color:var(--tx);cursor:pointer}
+.profile-btn.chosen{outline:2px solid var(--ac)}.profile-btn small{font-size:11px;color:var(--mu)}
+.avatar{width:44px;height:44px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-size:21px;font-weight:800}
+.pin-area{margin-top:18px}.pin-area input{font-size:24px;letter-spacing:5px;text-align:center}
+.gate{position:fixed;inset:0;z-index:20;background:var(--bg);overflow-y:auto;display:flex;justify-content:center;align-items:flex-start;padding:12vh 12px 25px}
+.gate.hide{display:none}.gate-inner{width:min(460px,100%);padding:24px;background:var(--card);border:1px solid var(--bd);border-radius:16px}
 </style></head><body>
 <header><div class="r"><b id="hb">Inventario</b><span id="hs" class="n"></span><span id="connectBadge" class="n">Solo este equipo</span></div><div class="bar"><i id="pg"></i></div></header>
 <div id="toast"></div>
+<section id="accessGate" class="gate hide"><div class="gate-inner"><div class="mu">NÁPOLES STORE · INVENTARIO</div><h2>Seleccionar usuario</h2><div id="accessContent"></div><div class="mu" style="margin-top:18px">Los registros se sincronizan con la computadora y el celular usando la misma base de datos.</div><button class="g" style="width:100%;margin-top:12px" onclick="$('accessGate').classList.add('hide');go('d')">Editar URL y API de conexión</button></div></section>
 <main>
 <section id="v-c">
 <details class="card" id="setup" open><summary><b id="sumry">Configurar conteo</b></summary>
-<label>Sesión de inventario</label><div class="r"><select id="ses"></select><button class="g n" onclick="nuevaSes()">+ Nueva</button></div>
+<label>Sesión de inventario</label><div class="r"><select id="ses"></select><button class="g n" id="newSessionBtn" onclick="nuevaSes()">+ Nueva</button></div>
 <div class="r"><div><label>Sector / zona</label><input id="sec" list="secs" placeholder="Ej: Depósito A" onchange="cfg()"><datalist id="secs"></datalist></div>
-<div><label>Responsable</label><input id="ope" placeholder="Tu nombre" onchange="cfg()"></div></div>
+<div><label>Responsable</label><input id="ope" placeholder="Usuario seleccionado" readonly></div></div>
 <div class="r" style="margin-top:8px"><button class="g" id="bsec" onclick="cerrarSector()">Cerrar sector</button><button class="g" id="brec" onclick="toggleRec()">Recuento ciego: NO</button></div></details>
 <div class="tabs" id="mt"></div>
 <div class="card"><div class="mu">Último registro</div><div class="last" id="lt">—</div><div class="r"><div class="big" id="lq">0</div><button class="g n" onclick="undo()">↶ Deshacer</button></div>
@@ -53,127 +62,166 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 <nav><button data-t="c" class="on">Conteo</button><button data-t="a">Avance</button><button data-t="j">Ajustes</button><button data-t="d">Datos</button></nav>
 <script>
 const $=i=>document.getElementById(i),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
+ jsAttr=s=>esc(JSON.stringify(String(s))).replace(/'/g,'&#39;'),
  K=(s,k,t)=>`${s}|${String(k).trim().toUpperCase()}|${String(t||'').trim().toLowerCase()}`,uid=()=>crypto.randomUUID(),now=()=>new Date().toISOString();
 // OPCIONAL: para usar la misma configuración en todos los dispositivos,
 // rellená estas dos constantes con los datos públicos de Supabase ANTES de subir index.html a Cloudflare Pages.
 // Nunca pongas aquí una service_role, secret key ni una contraseña.
-const DEFAULT_SUPABASE_URL = 'https://ikybmqqfltagwuulrfni.supabase.co';
-const DEFAULT_SUPABASE_PUBLIC_KEY = 'sb_publishable_cMZK-5OhYFC5UQlQpjnNmw_b0aAbx6j';
+const DEFAULT_SUPABASE_URL = '';
+const DEFAULT_SUPABASE_PUBLIC_KEY = '';
 const TB={sesiones:'sesiones',sectores:'sectores',conteos:'counts',marcas:'marks',movimientos:'mov',ajustes:'ajustes'};
-function blankState(){return {stock:[],counts:[],marks:[],ajustes:[],sectores:[],sesiones:[],mov:[],cfg:{url:DEFAULT_SUPABASE_URL,key:DEFAULT_SUPABASE_PUBLIC_KEY,ses:'',sec:'',ope:'',appUrl:'',ownerId:''},g:false};}
-let S;try{S=JSON.parse(localStorage.getItem('inv')||'null')||blankState()}catch(e){S=blankState()}
-S.cfg=S.cfg||{}; S.cfg.url=S.cfg.url||DEFAULT_SUPABASE_URL; S.cfg.key=S.cfg.key||DEFAULT_SUPABASE_PUBLIC_KEY;
-S.cfg.appUrl=S.cfg.appUrl||'';
+const STORAGE_KEY='napoles_inventario_pin_v1', TOKEN_KEY='napoles_inventario_token_v1';
+function blankState(){return {stock:[],counts:[],marks:[],ajustes:[],sectores:[],sesiones:[],mov:[],cfg:{url:DEFAULT_SUPABASE_URL,key:DEFAULT_SUPABASE_PUBLIC_KEY,ses:'',sec:'',ope:'',appUrl:''},g:false};}
+let S;try{S=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null')||blankState()}catch(e){S=blankState()}
+S.cfg=S.cfg||{}; S.cfg.url=S.cfg.url||DEFAULT_SUPABASE_URL;S.cfg.key=S.cfg.key||DEFAULT_SUPABASE_PUBLIC_KEY;
 for(const k of ['stock','counts','marks','ajustes','sectores','sesiones','mov'])if(!Array.isArray(S[k]))S[k]=[];
-let sb=null,cloudUser=null,syncBusy=false,pullBusy=false,syncedImports=new Set(),connectMsg='',mode='scan',hf=false,rec=false,sel=null,tab='c',lastScan=['',0],lastUnk=null,IMP=null,flt='',fst='';
-const save=()=>{try{localStorage.setItem('inv',JSON.stringify(S))}catch(e){toast('Memoria llena: sincroniza y limpia')}};
-function toast(m,ms=1800){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',ms)}
+let sb=null,cloudUser=null,cloudToken=localStorage.getItem(TOKEN_KEY)||'',profiles=[],usersCache=[],selectedProfile='',syncBusy=false,pullBusy=false,syncedImports=new Set(),connectMsg='',mode='scan',hf=false,rec=false,sel=null,tab='c',lastScan=['',0],lastUnk=null,IMP=null,flt='',fst='';
+const save=()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(S))}catch(e){toast('Memoria llena: sincronizá y liberá espacio')}};
+function toast(m,ms=2200){const t=$('toast');if(!t)return;t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',ms)}
 let AC;function beep(ok=true){try{AC=AC||new AudioContext();const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=ok?880:200;g.gain.value=.15;o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+(ok?.08:.3))}catch(e){}navigator.vibrate&&navigator.vibrate(ok?30:[80,40,80])}
 function say(t){if(hf&&window.speechSynthesis){const u=new SpeechSynthesisUtterance(t);u.lang='es-ES';speechSynthesis.speak(u)}}
 const cur=()=>S.sesiones.find(s=>s.id===S.cfg.ses);
-// ---------- conexión, autenticación y sincronización ----------
+// ---------- acceso por botones y PIN; sincronización segura por funciones RPC ----------
 function validPublicKey(key){
  if(!key||/^(sb_secret_|sb_service_)/i.test(key)||/service_role/i.test(key))return false;
- // La clave JWT antigua también puede tener rol de servicio; nunca permitirla.
  if(key.split('.').length===3){try{const v=JSON.parse(atob(key.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));if(v.role==='service_role')return false}catch(e){}}
  return key.startsWith('sb_publishable_')||key.startsWith('eyJ');
 }
 function conn(){
- if(!S.cfg.url||!S.cfg.key||!window.supabase){sb=null;cloudUser=null;return false}
+ if(!S.cfg.url||!S.cfg.key||!window.supabase){sb=null;cloudUser=null;showConnectionState();return false}
  try{
   const u=new URL(S.cfg.url);
-  if(u.protocol!=='https:'||!validPublicKey(S.cfg.key))throw Error('Usá la URL HTTPS y una publishable/anon key pública.');
-  sb=supabase.createClient(u.origin,S.cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});syncedImports=new Set();
-  sb.auth.onAuthStateChange((event,session)=>{
-   const previous=cloudUser?.id;
-   cloudUser=session?.user||null;
-   // En cambio de usuario, impedir que los datos locales del usuario anterior se suban a otro.
-   if(cloudUser&&S.cfg.ownerId&&S.cfg.ownerId!==cloudUser.id){
-    const config={...S.cfg,ses:'',sec:'',ope:'',ownerId:cloudUser.id};
-    S=blankState();S.cfg=config;save();
-   }
-   if(cloudUser){S.cfg.ownerId=cloudUser.id;save()}
-   showConnectionState();
-   if(cloudUser&&(event==='SIGNED_IN'||event==='INITIAL_SESSION'||(event==='TOKEN_REFRESHED'&&!previous)))setTimeout(()=>pull(),0);
-  });
-  sb.auth.getSession().then(({data,error})=>{if(error){connectMsg=error.message;showConnectionState();return}
-    cloudUser=data.session?.user||null;if(cloudUser){S.cfg.ownerId=cloudUser.id;save();pull()}showConnectionState();}).catch(e=>{connectMsg=e.message;showConnectionState()});
-  return true;
+  if(u.protocol!=='https:'||!validPublicKey(S.cfg.key))throw Error('URL HTTPS o clave pública inválida');
+  sb=supabase.createClient(u.origin,S.cfg.key,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+  syncedImports=new Set();connectMsg='';
+  restorePinSession();return true;
  }catch(e){sb=null;cloudUser=null;connectMsg=e.message;showConnectionState();return false}
 }
-function cloudReady(){return !!(sb&&cloudUser&&navigator.onLine)}
+async function rpc(name,args={}){
+ if(!sb)throw Error('Primero configurá Supabase');
+ const {data,error}=await sb.rpc(name,args);if(error)throw Error(error.message||'Error de Supabase');return data;
+}
+async function restorePinSession(){
+ if(!sb)return;
+ try{
+  if(cloudToken){cloudUser=await rpc('inventory_whoami',{p_token:cloudToken});if(!cloudUser){cloudToken='';localStorage.removeItem(TOKEN_KEY)}}
+  if(cloudUser){S.cfg.ope=cloudUser.nombre;save();showConnectionState();await pull()}
+  else{await loadProfiles();showAccessGate(true)}
+ }catch(e){connectMsg='Revisá el nuevo SQL: '+e.message;showAccessGate(true)}
+ showConnectionState();
+}
+function cloudReady(){return !!(sb&&cloudToken&&cloudUser&&navigator.onLine)}
 function dirtyCount(){return Object.values(TB).reduce((n,k)=>n+S[k].filter(x=>x._d).length,0)}
 function showConnectionState(){
  const b=$('connectBadge');if(!b)return;
- const status=!sb?'Sin configurar':!navigator.onLine?'Sin internet':!cloudUser?'Falta iniciar sesión':dirtyCount()?'Sincronizando…':'Nube conectada';
- b.textContent=status;b.style.color=sb&&cloudUser&&navigator.onLine?'var(--ok)':'var(--mu)';
- const x=$('cloudState');if(x)x.innerHTML=`<b>${esc(status)}</b>${cloudUser?`<br>Cuenta: ${esc(cloudUser.email||cloudUser.id)}`:''}${connectMsg?`<br><span class="warn">${esc(connectMsg)}</span>`:''}`;
- const a=$('authArea');if(a)a.style.display=sb?'block':'none';
- const lin=$('loginForm');if(lin)lin.style.display=cloudUser?'none':'block';
- const lo=$('logoutArea');if(lo)lo.style.display=cloudUser?'block':'none';
+ let st=!sb?'Sin configurar':!navigator.onLine?'Sin internet':!cloudUser?'Elegir usuario':dirtyCount()?'Cambios pendientes':'Sincronizado';
+ b.textContent=st;b.style.color=cloudReady()&&!dirtyCount()?'var(--ok)':'var(--mu)';
+ const x=$('cloudState');if(x)x.textContent=st+(cloudUser?' · '+cloudUser.nombre+' ('+cloudUser.rol+')':'')+(connectMsg?' · '+connectMsg:'');
+ const l=$('loggedAs');if(l)l.textContent=cloudUser?'Usuario: '+cloudUser.nombre+' · '+cloudUser.rol:'Ningún usuario seleccionado';
+ const a=$('userAdmin');if(a)a.style.display=cloudUser?.rol==='admin'?'block':'none';
+ const out=$('logoutBtn');if(out)out.style.display=cloudUser?'inline-block':'none';
 }
-async function saveConnection(){
- const url=($('cu')?.value||'').trim().replace(/\/+$/,'');
- const key=($('ck')?.value||'').trim();
- if(!url||!key){toast('Completá URL y clave pública',3000);return}
- try{const u=new URL(url);if(u.protocol!=='https:')throw Error();}catch(e){toast('URL inválida; debe comenzar por https://',3200);return}
- if(!validPublicKey(key)){toast('Clave inválida. Solo publicable/anon, NUNCA secreta.',4000);return}
- S.cfg.url=url;S.cfg.key=key;S.cfg.appUrl=($('appUrl')?.value||'').trim();save();
- connectMsg='';conn();showConnectionState();toast('Configuración guardada. Iniciá sesión.',2800);
+function showAccessGate(open){
+ const g=$('accessGate');if(!g)return;
+ if(!sb||!open||cloudUser){g.classList.add('hide');return}
+ g.classList.remove('hide');
+ $('accessContent').innerHTML=profiles.length?`<p class="mu">Seleccioná tu usuario e ingresá el PIN. Sin correo electrónico.</p><div class="profiles">${profiles.map(u=>`<button type="button" class="profile-btn ${selectedProfile===u.id?'chosen':''}" onclick="pickProfile('${u.id}')"><span class="avatar">${esc(u.nombre.slice(0,1).toUpperCase())}</span><b>${esc(u.nombre)}</b><small>${esc(u.rol)}</small></button>`).join('')}</div>${selectedProfile?`<div class="pin-area"><label>PIN de ${esc(profiles.find(u=>u.id===selectedProfile)?.nombre||'usuario')}</label><input id="pinEntry" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="off" placeholder="6 a 10 dígitos" onkeydown="if(event.key==='Enter')pinLogin()"><button class="b" style="width:100%;margin-top:10px" onclick="pinLogin()">Entrar al inventario</button></div>`:''}`:
+ '<p class="mu">No aparecen usuarios. Ejecutá el SQL nuevo y creá el administrador, o revisá la conexión.</p><button class="g" onclick="loadProfiles()">Actualizar usuarios</button>';
 }
-async function authAction(action){
- if(!sb)return toast('Primero guardá la conexión');
- const email=($('authEmail')?.value||'').trim();const password=$('authPass')?.value||'';
- if(!email.includes('@')||password.length<6)return toast('Ingresá email y contraseña de al menos 6 caracteres',3500);
- const btn=$('btnLogin');if(btn)btn.disabled=true;connectMsg='';
+function pickProfile(id){selectedProfile=id;showAccessGate(true);$('pinEntry')?.focus()}
+async function loadProfiles(){
+ if(!sb)return;try{profiles=await rpc('inventory_profiles');connectMsg='';showAccessGate(true)}
+ catch(e){connectMsg=e.message;toast('No se pudo obtener usuarios: '+e.message,4700)}showConnectionState();
+}
+async function pinLogin(){
+ const pin=$('pinEntry')?.value||'';
+ if(!selectedProfile||!/^[0-9]{6,10}$/.test(pin))return toast('Ingresá un PIN de 6 a 10 números');
  try{
-  const {data,error}=action==='signup'?await sb.auth.signUp({email,password}):await sb.auth.signInWithPassword({email,password});
-  if(error)throw error;
-  cloudUser=data.session?.user||null;
-  if(action==='signup'&&!data.session){connectMsg='Revisá tu correo y confirmá tu cuenta; luego iniciá sesión.'}
-  else{connectMsg='';if(cloudUser){S.cfg.ownerId=cloudUser.id;save();await pull()}}
- }catch(e){connectMsg=e.message||'Falló la autenticación'}finally{if(btn)btn.disabled=false;showConnectionState()}
+  const result=await rpc('inventory_login',{p_usuario:selectedProfile,p_pin:pin});
+  if(result?.error){$('pinEntry').value='';return toast(result.error,4200)}
+  cloudToken=result.token;cloudUser=result.usuario;localStorage.setItem(TOKEN_KEY,cloudToken);
+  S.cfg.ope=cloudUser.nombre;save();$('accessGate').classList.add('hide');
+  connectMsg='';showConnectionState();await pull();render();toast('Bienvenido: '+cloudUser.nombre);
+ }catch(e){toast('Error de PIN: '+e.message,4700)}
 }
 async function logout(){
- if(!sb)return;
- if(dirtyCount()&&!confirm('Hay registros pendientes de subir. Si cerrás sesión, podrían quedar solo en este equipo. ¿Continuar?'))return;
- const {error}=await sb.auth.signOut();if(error)return toast('Error: '+error.message,4000);
- cloudUser=null;const config={...S.cfg,ownerId:'',ses:'',sec:'',ope:''};S=blankState();S.cfg=config;save();connectMsg='Sesión cerrada';render();showConnectionState();
+ if(dirtyCount()&&!confirm('Hay conteos pendientes de sincronizar. ¿Cambiar de usuario de todas formas?'))return;
+ if(cloudReady())try{await rpc('inventory_logout',{p_token:cloudToken})}catch(e){}
+ cloudUser=null;cloudToken='';localStorage.removeItem(TOKEN_KEY);S.cfg.ope='';save();selectedProfile='';
+ showConnectionState();await loadProfiles();showAccessGate(true);
+}
+async function saveConnection(){
+ const url=($('cu')?.value||'').trim().replace(/\/+$/,'');const key=($('ck')?.value||'').trim();
+ try{if(new URL(url).protocol!=='https:')throw Error()}catch(e){return toast('La URL debe comenzar por https://',4000)}
+ if(!validPublicKey(key))return toast('Usá exclusivamente una Publishable o Anon key pública',4500);
+ const changed=url!==S.cfg.url||key!==S.cfg.key;
+ S.cfg.url=url;S.cfg.key=key;S.cfg.appUrl=($('appUrl')?.value||'').trim();save();
+ if(changed){cloudUser=null;cloudToken='';localStorage.removeItem(TOKEN_KEY)}
+ conn();toast('Conexión guardada. Elegí tu usuario y PIN.',3500);
 }
 function copyAppLink(){
  const u=(($('appUrl')?.value||S.cfg.appUrl||'').trim())||(location.protocol==='https:'?location.origin+location.pathname:'');
- if(!/^https:\/\//i.test(u))return toast('Primero publicá index.html en Cloudflare Pages y pegá la URL pública',4300);
- if(navigator.clipboard?.writeText)navigator.clipboard.writeText(u).then(()=>toast('URL copiada para abrir en el celular')).catch(()=>prompt('Copiá el enlace:',u));
- else prompt('Copiá el enlace:',u);
+ if(!/^https:\/\//i.test(u))return toast('Publicá index.html en Cloudflare y copiá la URL HTTPS',4300);
+ navigator.clipboard?.writeText(u).then(()=>toast('Enlace copiado')).catch(()=>prompt('Copiá el enlace:',u))||prompt('Copiá el enlace:',u);
 }
 async function testConnection(){
- if(!sb)return toast('Primero guardá la URL y la clave pública');
- if(!cloudUser)return toast('Primero iniciá sesión');
- const {data,error}=await sb.from('sesiones').select('id').limit(1);
- connectMsg=error?'No se puede consultar la base: '+error.message:'Conexión y permisos verificados. '+(data.length?'Hay sesiones guardadas.':'Base accesible, sin sesiones aún.');
- showConnectionState();toast(error?'Revisá SQL y permisos':'Conexión verificada',3400);
+ if(!sb)return toast('Guardá la URL y la clave pública');
+ try{const list=await rpc('inventory_profiles');connectMsg='Conectado: '+list.length+' usuarios';toast('Conexión verificada');}
+ catch(e){connectMsg=e.message;toast('Error: '+e.message,4400)}showConnectionState();
 }
-// Migra automáticamente las planillas guardadas localmente ANTES de subir sesiones/conteos.
-// También permite recuperar una importación que se preparó en modo local antes de configurar la nube.
+async function getUsers(){if(!cloudReady()||cloudUser.rol!=='admin')return;
+ try{usersCache=await rpc('inventory_users',{p_token:cloudToken});showUsers()}catch(e){toast('Usuarios: '+e.message,4000)}
+}
+function showUsers(){const p=$('usersList');if(!p)return;p.innerHTML=usersCache.map(u=>`<div class="tl"><span class="t">${esc(u.nombre)} <span class="mu">${esc(u.rol)} · ${u.activo?'Activo':'Inactivo'}</span></span><button class="g n" style="width:auto;height:auto;font-size:13px" onclick="editUser('${u.id}')">Editar / PIN</button></div>`).join('')||'<p class="mu">Todavía no hay operadores</p>'}
+async function saveNewUser(){
+ const name=($('newUsername')?.value||'').trim(),pin=$('newPin')?.value||'',role=$('newRole')?.value||'operador';
+ if(name.length<2||!/^[0-9]{6,10}$/.test(pin))return toast('Nombre y PIN de 6-10 números requeridos',4000);
+ try{await rpc('inventory_save_user',{p_token:cloudToken,p_nombre:name,p_pin:pin,p_rol:role,p_id:null,p_activo:true});
+  $('newUsername').value='';$('newPin').value='';await getUsers();await loadProfiles();toast('Usuario creado')}
+ catch(e){toast('Error creando usuario: '+e.message,5000)}
+}
+async function editUser(id){
+ const u=usersCache.find(x=>x.id===id);if(!u)return;
+ const name=prompt('Nombre del usuario',u.nombre);if(name===null)return;
+ const role=prompt('Rol: admin, supervisor u operador',u.rol);if(role===null)return;
+ const pin=prompt('Nuevo PIN de 6 a 10 números (vacío para conservar)', '');if(pin===null)return;
+ const active=confirm('¿Mantener este usuario ACTIVO? Cancelar = desactivar.');
+ try{await rpc('inventory_save_user',{p_token:cloudToken,p_nombre:name,p_pin:pin||null,p_rol:role.toLowerCase(),p_id:id,p_activo:active});
+  await getUsers();await loadProfiles();toast('Usuario actualizado')}
+ catch(e){toast('No se pudo actualizar: '+e.message,4600)}
+}
+async function recoverPreviousLocal(){
+ if(!cloudReady()||cloudUser.rol!=='admin')return toast('Ingresá como administrador para recuperar datos',4000);
+ let old;try{old=JSON.parse(localStorage.getItem('inv')||'null')}catch(e){}
+ if(!old?.stock?.length)return toast('No se encontraron datos locales de la versión anterior',4300);
+ const oldCounts=Array.isArray(old.counts)?old.counts.length:0;
+ if(!confirm(`Se encontraron ${old.stock.length} filas de stock y ${oldCounts} conteos antiguos en ESTE dispositivo. ¿Recuperar y enviar estos datos al inventario compartido?`))return;
+ let addedStock=0,addedData=0;
+ const existing=new Set(S.stock.map(x=>`${x.imp||x.importacion_id}|${K(x.sucursal,x.sku,x.talle)}`));
+ for(const row of old.stock){const id=row.imp||row.importacion_id;if(!id)continue;const key=`${id}|${K(row.sucursal,row.sku,row.talle)}`;
+  if(!existing.has(key)){S.stock.push({...row,imp:id,importacion_id:id});existing.add(key);addedStock++}}
+ for(const key of ['sesiones','counts','marks','sectores','mov','ajustes']){
+  const target=S[key],ids=new Set(target.map(x=>x.id));
+  for(const row of old[key]||[]){if(!row.id||ids.has(row.id))continue;const {_d,owner_id,...clean}=row;target.push({...clean,_d:1});ids.add(row.id);addedData++}
+ }
+ save();toast(`Recuperados ${addedStock} registros de stock y ${addedData} operaciones. Sincronizando…`,5000);
+ const pushed=await push();if(pushed){await pull();toast('Datos antiguos recuperados en Supabase')}
+ else toast('Los datos quedaron en este equipo; revisá la sincronización',5500);
+}
+async function fetchRows(kind,sessionId){let out=[];for(let off=0;;off+=500){
+ const data=kind==='stock'?await rpc('inventory_stock',{p_token:cloudToken,p_importacion:sessionId,p_offset:off,p_limit:500}):
+ await rpc('inventory_list',{p_token:cloudToken,p_tipo:kind,p_sesion:sessionId||null,p_offset:off,p_limit:500});
+ out=out.concat(data||[]);if(!data||data.length<500)return out;
+}}
 async function syncImports(){
- const groups=new Map();
- S.stock.forEach(r=>{const id=r.imp||r.importacion_id;if(!id)return;
-  if(!groups.has(id))groups.set(id,[]);groups.get(id).push(r)
- });
+ const groups=new Map();S.stock.forEach(r=>{const id=r.imp||r.importacion_id;if(!id)return;if(!groups.has(id))groups.set(id,[]);groups.get(id).push(r)});
  for(const [id,rows] of groups){
   if(syncedImports.has(id))continue;
-  const {data, error}=await sb.from('importaciones').select('id').eq('id',id).maybeSingle();
-  if(error)throw Error('No se puede verificar importación: '+error.message);
-  if(!data){
-   const ins=await sb.from('importaciones').insert({id,owner_id:cloudUser.id,nombre:'Planilla recuperada desde este dispositivo',sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length});
-   if(ins.error)throw Error('No se puede recuperar la importación: '+ins.error.message);
-   for(let i=0;i<rows.length;i+=250){
-    const payload=rows.slice(i,i+250).map(r=>({owner_id:cloudUser.id,importacion_id:id,sucursal:r.sucursal,sku:r.sku,
-     nombre:r.nombre||'',marca:r.marca||'',categoria:r.categoria||'',talle:r.talle||'',cantidad:Number(r.cantidad)||0,
-     barcode:r.barcode||'',costo:r.costo==null?null:Number(r.costo)}));
-    const res=await sb.from('stock_oficial').upsert(payload,{onConflict:'importacion_id,sucursal,sku,talle'});
-    if(res.error)throw Error('Error recuperando planilla: '+res.error.message);
-   }
+  const remote=await fetchRows('importaciones',null);
+  if(!remote.some(r=>r.id===id)){
+   if(cloudUser.rol!=='admin')throw Error('Hay una planilla local sin subir. Entrá como administrador para sincronizarla');
+   await rpc('inventory_save',{p_token:cloudToken,p_tipo:'importaciones',p_registros:[{id,nombre:'Planilla local recuperada',sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length}]});
+   for(let i=0;i<rows.length;i+=250)await rpc('inventory_import_stock',{p_token:cloudToken,p_importacion:id,p_filas:rows.slice(i,i+250).map(({imp,importacion_id,id,...r})=>r)});
   }
   syncedImports.add(id);
  }
@@ -183,39 +231,32 @@ async function push(){
  syncBusy=true;let success=true;
  try{
   await syncImports();
-  for(const [t,k] of Object.entries(TB)){
-   let d=S[k].filter(r=>r._d);
-   for(let i=0;i<d.length;i+=150){
-    const ch=d.slice(i,i+150);
-    const payload=ch.map(({_d,...row})=>({...row,owner_id:cloudUser.id}));
-    const {error}=await sb.from(t).upsert(payload,{onConflict:'id'});
-    if(error)throw Error(`${t}: ${error.message}`);
-    ch.forEach(r=>{r._d=undefined;delete r._d});
+  for(const[t,k]of Object.entries(TB)){
+   const d=S[k].filter(r=>r._d);
+   for(let i=0;i<d.length;i+=150){const ch=d.slice(i,i+150);
+    await rpc('inventory_save',{p_token:cloudToken,p_tipo:t,p_registros:ch.map(({_d,...row})=>row)});
+    ch.forEach(r=>delete r._d);
    }
   }
   connectMsg='';save();
- }catch(e){success=false;connectMsg='No se pudo sincronizar: '+e.message;console.error(e)}
- finally{syncBusy=false;showConnectionState()}
- return success;
+ }catch(e){success=false;connectMsg='Sin sincronizar: '+e.message;console.error(e)}
+ finally{syncBusy=false;showConnectionState()}return success;
 }
-async function all(q){let o=[],f=0;for(;;){const{data,error}=await q().range(f,f+999);if(error)throw error;o=o.concat(data);if(data.length<1000)return o;f+=1000}}
 async function pull(){
  if(!cloudReady()||pullBusy)return;
  pullBusy=true;
  try{
-  const pushed=await push();if(!pushed)throw Error(connectMsg||'Datos pendientes de sincronizar');
-  const remoteSessions=await all(()=>sb.from('sesiones').select('*').order('created_at'));
-  S.sesiones=mrg(S.sesiones,remoteSessions);
-  if(!cur()&&S.sesiones.length){S.cfg.ses=S.sesiones[S.sesiones.length-1].id}
+  if(!syncBusy){const pushed=await push();if(!pushed)throw Error(connectMsg||'Datos pendientes de sincronización')}
+  S.sesiones=mrg(S.sesiones,await fetchRows('sesiones',null));
+  if(!cur()&&S.sesiones.length)S.cfg.ses=S.sesiones[S.sesiones.length-1].id;
   const sess=cur();
   if(sess){
    for(const[t,k]of Object.entries(TB)){
     if(t==='sesiones')continue;
-    S[k]=mrg(S[k],await all(()=>sb.from(t).select('*').eq('sesion_id',sess.id)),sess.id);
+    S[k]=mrg(S[k],await fetchRows(t,sess.id),sess.id);
    }
    if(sess.importacion_id&&!S.stock.some(r=>r.imp===sess.importacion_id)){
-    const rows=await all(()=>sb.from('stock_oficial').select('*').eq('importacion_id',sess.importacion_id).order('id'));
-    S.stock=S.stock.concat(rows.map(r=>({...r,imp:r.importacion_id})));
+    S.stock=S.stock.concat((await fetchRows('stock',sess.importacion_id)).map(r=>({...r,imp:r.importacion_id||r.imp})));
    }
   }
   connectMsg='';save();render();
@@ -223,13 +264,13 @@ async function pull(){
  finally{pullBusy=false}
 }
 function mrg(loc,rem,ses){
- const d=new Map(loc.filter(r=>r._d).map(r=>[r.id,r]));
- const o=rem.map(r=>d.get(r.id)||r);const ids=new Set(rem.map(r=>r.id));
+ const d=new Map(loc.filter(r=>r._d).map(r=>[r.id,r])),o=rem.map(r=>d.get(r.id)||r),ids=new Set(rem.map(r=>r.id));
  return o.concat(loc.filter(r=>r._d&&!ids.has(r.id)),ses?loc.filter(r=>!r._d&&r.sesion_id!==ses):[])
 }
 function up(k,row){
+ if(!cloudUser)return toast('Elegí tu usuario con PIN antes de registrar cambios',4000);
  row._d=1;const i=S[k].findIndex(r=>r.id===row.id);if(i<0)S[k].push(row);else S[k][i]=row;
- save();if(cloudReady())void push();showConnectionState();
+ save();if(cloudReady()&&!syncBusy)void push();showConnectionState();
 }
 const stat=m=>showConnectionState();
 // ---------- cálculo ----------
@@ -245,7 +286,7 @@ function stats(){const c=calc();if(!c)return null;const o={tot:0,ok:0,phys:0,COI
  c.L.forEach(v=>{if(!v.unk){o.tot++;if(v.n)o.ok++}o[v.st]++;o.phys+=v.phys;if(v.m==='recuento')o.rec++});return{...c,o}}
 // ---------- registro ----------
 function lockedSec(s,sec){return S.sectores.some(x=>x.id===`${s}|${sec}`&&x.cerrado)}
-function add(v,q,metodo,unk){const s=cur();if(!s)return toast('Elegí una sesión');const sec=S.cfg.sec||'General';
+function add(v,q,metodo,unk){if(!cloudUser)return toast('Elegí usuario con PIN');const s=cur();if(!s)return toast('Elegí una sesión');const sec=S.cfg.sec||'General';
  if(lockedSec(s.id,sec)){beep(false);return toast('Sector cerrado 🔒')}
  if(!S.cfg.ope){beep(false);$('setup').open=true;return toast('Falta el responsable')}
  const r={id:uid(),sesion_id:s.id,sucursal:s.sucursal,sector:sec,operador:S.cfg.ope,sku:v.sku,talle:v.talle||'',cantidad:q,metodo,tipo:rec?'recuento':'conteo',anulado:false,desconocido:!!unk,created_at:now()};
@@ -285,7 +326,7 @@ async function startCam(){if(!('BarcodeDetector' in window)){$('cs').textContent
 function stopCam(){clearInterval(camT);stream&&stream.getTracks().forEach(t=>t.stop());stream=null}
 // producto manual
 function busc(q){q=q.toLowerCase().trim();const s=cur(),m=new Map;if(q.length>1)S.stock.forEach(r=>{if(r.sucursal!==s?.sucursal||m.size>=12)return;if((r.sku+' '+r.nombre+' '+r.marca).toLowerCase().includes(q)&&!m.has(String(r.sku).toUpperCase()))m.set(String(r.sku).toUpperCase(),r)});
- $('qr').innerHTML=[...m.values()].map(r=>`<div class="tl" onclick="pickSkuV('${esc(String(r.sku).toUpperCase())}')"><span class="t">${esc(r.sku)}</span><span class="mu">${esc(r.nombre)}</span></div>`).join('')}
+ $('qr').innerHTML=[...m.values()].map(r=>`<div class="tl" onclick="pickSkuV(${jsAttr(String(r.sku).toUpperCase())})"><span class="t">${esc(r.sku)}</span><span class="mu">${esc(r.nombre)}</span></div>`).join('')}
 function pickSkuV(sku){const l=(IDX||idx()).K.get(sku);sel={sku,nombre:l[0].nombre};if(mode!=='man')setMode('man');$('qr').innerHTML='';selUI()}
 function pickSku(){if(mode!=='man')setMode('man');selUI()}
 function selUI(){const t=$('tal');if(!t||!sel)return;const c=calc();const l=(IDX||idx()).K.get(sel.sku)||[];t.innerHTML=`<div class="last" style="margin-top:8px">${esc(sel.sku)} <span class="mu">${esc(sel.nombre)}</span></div>`+l.map(r=>{const v=c.V.get(K(r.sucursal,r.sku,r.talle));return`<div class="tl"><span class="t">${esc(r.talle)}<br><span class="mu">${rec?'sistema oculto':'sis: '+v.sis}</span></span><button onclick="stp(this,-1)">−</button><input type="number" inputmode="numeric" value="${v.phys}" data-t="${esc(r.talle)}" data-p="${v.phys}" onchange="setQ(this)"><button onclick="stp(this,1)">+</button></div>`}).join('')+`<button class="b" style="width:100%;margin-top:8px" onclick="sel=null;$('tal').innerHTML='';$('q').value='';$('q').focus()">Siguiente producto</button>`}
@@ -312,7 +353,7 @@ function cmd(raw){const t=nrm(raw||'').trim(),I=IDX||idx();if(!t)return;let m;
  if(!sku||!tl||q==null)return toast('No entendí claro. Repetí: SKU, talle y cantidad.',3000);
  const tv=isNaN(+tl)&&NUM[tl]!=null?String(NUM[tl]):tl,v=(I.K.get(sku)||[]).find(r=>tm(r.talle,tv));
  if(!v)return beep(false),toast(`No existe ${sku} talle ${tv} en la sucursal`,3000);
- $('pick').style.display='block';$('pick').innerHTML=`<b>Interpretado:</b> ${esc(v.sku)} ${esc(v.nombre)} · talle ${esc(v.talle)} · ${q} u.<div class="r" style="margin-top:8px"><button class="b" onclick="add(IDX.K.get('${esc(sku)}').find(r=>r.talle==='${esc(v.talle)}'),${q},'voz');$('pick').style.display='none'">Confirmar</button><button class="g" onclick="$('pick').style.display='none'">Cancelar</button></div>`;
+ $('pick').style.display='block';$('pick').innerHTML=`<b>Interpretado:</b> ${esc(v.sku)} ${esc(v.nombre)} · talle ${esc(v.talle)} · ${q} u.<div class="r" style="margin-top:8px"><button class="b" onclick="add(IDX.K.get(${jsAttr(sku)}).find(r=>r.talle===${jsAttr(v.talle)}),${q},'voz');$('pick').style.display='none'">Confirmar</button><button class="g" onclick="$('pick').style.display='none'">Cancelar</button></div>`;
  if(hf)say(`${v.sku} talle ${v.talle}, ${q} unidades. Confirmá.`)}
 // ---------- fotos ----------
 let FO=[];
@@ -324,9 +365,9 @@ async function foto(files){FO=[];$('fo').textContent='Leyendo…';for(const f of
 function fotoUI(){$('fo').innerHTML=FO.length?FO.map((x,i)=>`<div class="tl"><span class="t">${esc(x.code)}<br><span class="mu">${x.v&&!x.v.amb?esc(x.v.sku+' '+x.v.talle+' '+x.v.nombre):x.v?'Varios talles: usá búsqueda manual':'No está en catálogo'}</span></span><input type="number" value="${x.q}" min="0" style="width:64px" onchange="FO[${i}].q=+this.value"><button class="g n" onclick="FO.splice(${i},1);fotoUI()">✕</button></div>`).join('')+`<button class="b" style="width:100%;margin-top:8px" onclick="fotoOk()">Confirmar lista</button>`:'No se pudo leer ningún código. Sacá otra foto más cerca y con luz, o buscá manual.'}
 function fotoOk(){FO.filter(x=>x.v&&!x.v.amb).forEach(x=>add(x.v,x.q,'foto'));FO=[];$('fo').textContent='Cargado ✔'}
 // ---------- sesiones, sectores ----------
-function cfg(){S.cfg.sec=$('sec').value.trim();S.cfg.ope=$('ope').value.trim();save();bar();if(S.cfg.sec&&cur()){const id=`${cur().id}|${S.cfg.sec}`;if(!S.sectores.some(x=>x.id===id))up('sectores',{id,sesion_id:cur().id,nombre:S.cfg.sec,cerrado:false})}}
+function cfg(){S.cfg.sec=$('sec').value.trim();S.cfg.ope=cloudUser?.nombre||'';save();bar();if(S.cfg.sec&&cur()){const id=`${cur().id}|${S.cfg.sec}`;if(!S.sectores.some(x=>x.id===id))up('sectores',{id,sesion_id:cur().id,nombre:S.cfg.sec,cerrado:false})}}
 function selSes(){S.cfg.ses=$('ses').value;S.cfg.sec='';$('sec').value='';IDX=null;save();render();pull()}
-function nuevaSes(){const imps=[...new Set(S.stock.map(r=>r.imp))];if(!S.stock.length)return toast('Primero importá el Excel en Datos'),go('d');
+function nuevaSes(){if(!cloudReady()||cloudUser.rol==='operador')return toast('Solo admin o supervisor puede crear inventarios');const imps=[...new Set(S.stock.map(r=>r.imp))];if(!S.stock.length)return toast('Primero importá el Excel en Datos'),go('d');
  const suc=[...new Set(S.stock.map(r=>r.sucursal))],n=prompt('Nombre de la sesión','Inventario '+new Date().toLocaleDateString('es-PY'));if(!n)return;const su=suc.length===1?suc[0]:prompt('Sucursal exacta: '+suc.join(', '),suc[0]);if(!suc.includes(su))return toast('Sucursal inválida');
  const s={id:uid(),nombre:n,sucursal:su,importacion_id:[...S.stock].reverse().find(r=>r.sucursal===su).imp,corte:now(),estado:'abierta',created_at:now()};up('sesiones',s);S.cfg.ses=s.id;IDX=null;save();render()}
 function cerrarSector(){const s=cur(),sec=S.cfg.sec;if(!s||!sec)return toast('Elegí sector');const id=`${s.id}|${sec}`,x=S.sectores.find(y=>y.id===id)||{id,sesion_id:s.id,nombre:sec};
@@ -341,37 +382,47 @@ function vAvance(){const s=stats();if(!s)return'<div class="card">Elegí una ses
  <div class="card"><b>Por sector</b> ${Object.entries(sec).map(([k,v])=>`<div class="tl"><span class="t">${esc(k)} ${S.sectores.some(x=>x.id===s.s.id+'|'+k&&x.cerrado)?'🔒':''}</span>${v} u</div>`).join('')||'—'}<br><b>Por operador</b> ${Object.entries(op).map(([k,v])=>`<div class="tl"><span class="t">${esc(k)}</span>${v} lecturas</div>`).join('')||'—'}</div>
  <div class="card"><input placeholder="Filtrar por SKU, nombre, marca o categoría" value="${esc(flt)}" oninput="flt=this.value.toLowerCase();clearTimeout(window._f);window._f=setTimeout(render,300)">
  <button class="g" style="width:100%;margin-top:8px" onclick="cero()">Confirmar 0 unidades en los PENDIENTES filtrados</button>
- <table><tr><th>SKU / talle</th><th>Sis</th><th>Fís</th><th></th></tr>${rows.map(v=>`<tr><td>${esc(v.sku)} <span class="mu">${esc(v.talle)}<br>${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.n?v.phys:'—'}</td><td><span class="tag ${v.st}">${v.st==='NI'?'NO IDENT.':v.st}</span>${v.m?` <span class="mu">${v.m}</span>`:''}<br>${v.st==='FALTANTE'||v.st==='SOBRANTE'?`<button class="g" onclick="marca('${esc(v.k)}','recuento')">Recontar</button> <button class="g" onclick="marca('${esc(v.k)}','validado')">Validar</button>`:''}</td></tr>`).join('')}</table><div class="mu">Mostrando ${rows.length} (máx. 80)</div></div>`}
-function marca(k,e){const s=cur();const[,sku,talle]=k.split('|'),v=calc().V.get(k);up('marcas',{id:`${s.id}|${k}`,sesion_id:s.id,sucursal:s.sucursal,sku:v.sku,talle:v.talle,estado:e,por:S.cfg.ope,created_at:now()});if(e==='recuento'){toast('Recuento pedido: activá "Recuento ciego" y recontá '+v.sku);}render()}
-function cero(){const c=calc(),p=c.L.filter(v=>v.st==='PENDIENTE'&&(!flt||(v.sku+v.nombre+v.marca+v.categoria).toLowerCase().includes(flt))&&(!fst||fst==='PENDIENTE'));
- if(!p.length)return toast('Sin pendientes');if(!flt&&!confirm(`Sin filtro: ${p.length} variantes pasan a CERO físico. ¿Seguro?`))return;if(flt&&!confirm(`${p.length} variantes filtradas quedan en CERO confirmado. ¿Confirmar?`))return;p.forEach(v=>add(v,0,'manual'));render()}
+ <table><tr><th>SKU / talle</th><th>Sis</th><th>Fís</th><th></th></tr>${rows.map(v=>`<tr><td>${esc(v.sku)} <span class="mu">${esc(v.talle)}<br>${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.n?v.phys:'—'}</td><td><span class="tag ${v.st}">${v.st==='NI'?'NO IDENT.':v.st}</span>${v.m?` <span class="mu">${v.m}</span>`:''}<br>${v.st==='FALTANTE'||v.st==='SOBRANTE'?`<button class="g" onclick="marca(${jsAttr(v.k)},'recuento')">Recontar</button> <button class="g" onclick="marca(${jsAttr(v.k)},'validado')">Validar</button>`:''}</td></tr>`).join('')}</table><div class="mu">Mostrando ${rows.length} (máx. 80)</div></div>`}
+function marca(k,e){if(cloudUser?.rol==='operador')return toast('Recuento y validación requieren supervisor');const s=cur();const[,sku,talle]=k.split('|'),v=calc().V.get(k);up('marcas',{id:`${s.id}|${k}`,sesion_id:s.id,sucursal:s.sucursal,sku:v.sku,talle:v.talle,estado:e,por:S.cfg.ope,created_at:now()});if(e==='recuento'){toast('Recuento pedido: activá "Recuento ciego" y recontá '+v.sku);}render()}
+function cero(){
+ if(!cloudUser)return toast('Elegí un usuario');
+ const c=calc(),p=c.L.filter(v=>v.st==='PENDIENTE'&&(!flt||(v.sku+v.nombre+v.marca+v.categoria).toLowerCase().includes(flt))&&(!fst||fst==='PENDIENTE'));
+ if(!p.length)return toast('Sin pendientes');
+ if(!confirm(`Esto confirmará CERO físico en ${p.length} variantes pendientes${flt?' del filtro actual':''}. ¿Verificaste que NO existen en la sucursal?`))return;
+ const s=cur(),sector=S.cfg.sec||'General';if(lockedSec(s.id,sector))return toast('Sector cerrado');
+ const nuevos=p.map(v=>({id:uid(),sesion_id:s.id,sucursal:s.sucursal,sector,operador:cloudUser.nombre,sku:v.sku,talle:v.talle||'',cantidad:0,metodo:'confirmacion_cero',tipo:'conteo',anulado:false,desconocido:false,created_at:now(),_d:1}));
+ S.counts.push(...nuevos);save();if(cloudReady()&&!syncBusy)void push();toast(`${nuevos.length} variantes confirmadas con stock físico 0`);render();
+}
 // ---------- ajustes ----------
 function vAjustes(){const c=calc();if(!c)return'<div class="card">Elegí una sesión.</div>';const A=c.L.filter(v=>v.st==='FALTANTE'||v.st==='SOBRANTE'),en=A.filter(v=>v.d>0),sa=A.filter(v=>v.d<0);
- const T=(t,l)=>`<div class="card"><div class="r"><b>${t} (${l.length})</b><button class="g n" onclick="aprobarTodo('${t}')">Aprobar todo</button><button class="b n" onclick="exporta('${t}')">Excel</button></div><table><tr><th>SKU/talle</th><th>Sis</th><th>Fís</th><th>Ajuste</th><th>Estado</th></tr>${l.map(v=>`<tr><td>${esc(v.sku)} ${esc(v.talle)}<br><span class="mu">${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.phys}</td><td>${Math.abs(v.d)}</td><td>${v.aj?.aprobado?(v.aj.exportado_at?'Exportado':'Aprobado'):`<button class="g" onclick="aprobar('${esc(v.k)}','${t}')">Aprobar</button>`}</td></tr>`).join('')}</table></div>`;
+ const T=(t,l)=>`<div class="card"><div class="r"><b>${t} (${l.length})</b><button class="g n" onclick="aprobarTodo('${t}')">Aprobar todo</button><button class="b n" onclick="exporta('${t}')">Excel</button></div><table><tr><th>SKU/talle</th><th>Sis</th><th>Fís</th><th>Ajuste</th><th>Estado</th></tr>${l.map(v=>`<tr><td>${esc(v.sku)} ${esc(v.talle)}<br><span class="mu">${esc(v.nombre)}</span></td><td>${v.sis}</td><td>${v.phys}</td><td>${Math.abs(v.d)}</td><td>${v.aj?.aprobado?(v.aj.exportado_at?'Exportado':'Aprobado'):`<button class="g" onclick="aprobar(${jsAttr(v.k)},'${t}')">Aprobar</button>`}</td></tr>`).join('')}</table></div>`;
  return`<div class="card mu">Corte: ${new Date(c.s.corte).toLocaleString('es-PY')}. Cargá ventas/ingresos posteriores en Datos antes de aprobar. Solo se ajustan variantes contadas; los pendientes nunca generan salida.</div>`+T('ENTRADAS',en)+T('SALIDAS',sa)}
-function aprobar(k,t){const c=calc(),v=c.V.get(k);if(v.m!=='validado'&&v.m!=='recuento'&&!confirm('Esta variante no está validada. ¿Aprobar igual?'))return;ap(v,t)}
+function aprobar(k,t){if(cloudUser?.rol!=='admin')return toast('Solo el administrador puede aprobar ajustes');const c=calc(),v=c.V.get(k);if(v.m!=='validado'&&v.m!=='recuento'&&!confirm('Esta variante no está validada. ¿Aprobar igual?'))return;ap(v,t)}
 function ap(v,t){const s=cur();up('ajustes',{id:`${s.id}|${v.k}`,sesion_id:s.id,sucursal:s.sucursal,sku:v.sku,talle:v.talle,tipo:t==='ENTRADAS'?'ENTRADA':'SALIDA',cantidad:Math.abs(v.d),responsable:S.cfg.ope,aprobado:true,aprobado_at:now(),exportado_at:v.aj?.exportado_at||null,created_at:now()});render()}
-function aprobarTodo(t){if(!S.cfg.ope)return toast('Falta responsable');const c=calc(),l=c.L.filter(v=>t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE');if(l.length&&confirm(`Aprobar ${l.length} ajustes de ${t}?`))l.forEach(v=>ap(v,t))}
-function exporta(t){const c=calc(),l=c.L.filter(v=>(t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE')&&v.aj?.aprobado&&!v.aj.exportado_at);if(!l.length)return toast('Nada aprobado sin exportar');
+function aprobarTodo(t){if(cloudUser?.rol!=='admin')return toast('Solo administrador puede aprobar ajustes');if(!S.cfg.ope)return toast('Falta responsable');const c=calc(),l=c.L.filter(v=>t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE');if(l.length&&confirm(`Aprobar ${l.length} ajustes de ${t}?`))l.forEach(v=>ap(v,t))}
+function exporta(t){if(cloudUser?.rol!=='admin')return toast('Solo administrador puede exportar ajustes');const c=calc(),l=c.L.filter(v=>(t==='ENTRADAS'?v.st==='SOBRANTE':v.st==='FALTANTE')&&v.aj?.aprobado&&!v.aj.exportado_at);if(!l.length)return toast('Nada aprobado sin exportar');
  const rows=l.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Talle:v.talle,'Stock sistema':v.sis,'Stock físico':v.phys,Diferencia:v.d,Cantidad:Math.abs(v.d),Responsable:v.aj.responsable,Estado:'Aprobado'}));
  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),t);XLSX.writeFile(wb,`${t}_${c.s.sucursal}_${new Date().toISOString().slice(0,10)}.xlsx`);l.forEach(v=>{v.aj.exportado_at=now();up('ajustes',v.aj)});render()}
 function repo(){const c=calc();if(!c)return;const rows=c.L.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Marca:v.marca,Categoria:v.categoria,Talle:v.talle,Sistema:v.sis,Fisico:v.n?v.phys:'',Diferencia:v.n?v.d:'',Estado:v.st}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Conciliacion');XLSX.writeFile(wb,'conciliacion.xlsx')}
 // ---------- datos / importación ----------
 const AL={sucursal:['sucursal','local','tienda','deposito'],sku:['sku','codigo','cod','articulo','referencia','modelo'],nombre:['nombre','producto','descripcion','detalle'],marca:['marca'],categoria:['categoria','rubro','familia'],talle:['talle','talla','size','numero'],cantidad:['cantidad','stock','existencia','qty','saldo'],barcode:['codigo de barras','barcode','ean','codbarras','codigobarras','upc'],costo:['costo','precio costo']};
 function vDatos(){const s=stats();const currentUrl=location.protocol==='https:'?location.origin+location.pathname:'';
-return `<div class="card"><b>Conectar computadora y celular</b><p class="mu">Pegá aquí la URL HTTPS de Supabase y la <b>publishable key</b> (o anon key antigua). Nunca uses secret key ni service_role.</p>
-<label for="cu">1. URL del proyecto Supabase</label><input id="cu" type="url" inputmode="url" autocapitalize="none" autocomplete="url" value="${esc(S.cfg.url)}" placeholder="https://tu-proyecto.supabase.co">
-<label for="ck">2. API key PÚBLICA (sb_publishable_... o anon)</label><input id="ck" type="password" autocorrect="off" autocapitalize="none" spellcheck="false" value="${esc(S.cfg.key)}" placeholder="sb_publishable_...">
-<div class="r" style="margin-top:9px"><button class="b" onclick="saveConnection()">Guardar URL y API</button><button class="g" onclick="testConnection()">Probar conexión</button></div>
-<div class="authbox" id="authArea" style="display:${sb?'block':'none'}">
-<div id="cloudState" class="mu">${cloudUser?'Cuenta conectada':'Iniciá sesión para sincronizar'}</div>
-<div id="loginForm" style="display:${cloudUser?'none':'block'}"><label>Correo electrónico</label><input id="authEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="correo@ejemplo.com"><label>Contraseña</label><input id="authPass" type="password" autocomplete="current-password" placeholder="Tu contraseña (mínimo 6 caracteres)"><div class="auth-actions"><button class="b" id="btnLogin" onclick="authAction('login')">Iniciar sesión</button><button class="g" onclick="authAction('signup')">Crear cuenta</button></div></div>
-<div id="logoutArea" style="display:${cloudUser?'block':'none'}"><button class="g" style="margin-top:9px" onclick="logout()">Cerrar sesión</button></div></div>
-<label for="appUrl">3. URL pública de TU INVENTARIO (Cloudflare Pages)</label><input id="appUrl" type="url" inputmode="url" value="${esc(S.cfg.appUrl||currentUrl)}" placeholder="https://tu-inventario.pages.dev"><div class="r" style="margin-top:9px"><button class="g" onclick="S.cfg.appUrl=$('appUrl').value.trim();save();copyAppLink()">Copiar enlace para móvil</button><button class="g" onclick="pull().then(()=>toast('Consulta de sincronización realizada'))">Sincronizar ahora</button></div>
-<p class="mu" style="margin-bottom:0">Para abrir en ambos dispositivos, subí este <b>index.html</b> a Cloudflare Pages (HTTPS). Usá la misma cuenta de Supabase en celular y PC. La URL pública de la web es diferente de la URL del proyecto Supabase.</p>
-${!cloudUser?'<p class="warn">Sin sesión iniciada, los datos quedan guardados únicamente en este dispositivo.</p>':''}</div>
-<div class="card"><b>Importar stock (Excel/CSV)</b><div class="mu">Columnas: sucursal, sku, nombre, marca, categoría, talle, cantidad, código de barras, costo.</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leer(this.files[0])"><div id="im"></div></div>
-<div class="card"><b>Movimientos posteriores al corte</b><div class="mu">Excel con sku, talle, cantidad (ventas en negativo, ingresos en positivo).</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leerMov(this.files[0])"></div>
+return `<div class="card"><b>Sincronización PC + celular (sin correos)</b><p class="mu">Pegá la URL de Supabase y la API key <b>pública</b>. El sistema mostrará botones con usuarios y PIN. Nunca pegues una secret key ni service_role.</p>
+<label>URL del proyecto Supabase</label><input id="cu" type="url" value="${esc(S.cfg.url)}" placeholder="https://tu-proyecto.supabase.co">
+<label>API pública (sb_publishable_... o anon)</label><input id="ck" type="password" autocorrect="off" autocapitalize="none" spellcheck="false" value="${esc(S.cfg.key)}" placeholder="sb_publishable_...">
+<div class="r" style="margin-top:9px"><button class="b" onclick="saveConnection()">Guardar API y URL</button><button class="g" onclick="testConnection()">Probar conexión</button></div>
+<div class="authbox"><div id="cloudState" class="mu">${esc(connectMsg||'Sincronización por PIN')}</div><div id="loggedAs" style="margin:9px 0">${cloudUser?'Usuario: '+esc(cloudUser.nombre):'Seleccioná un usuario'}</div><div class="r"><button class="g" onclick="loadProfiles().then(()=>showAccessGate(true))">Elegir usuario / PIN</button><button class="g" id="logoutBtn" onclick="logout()" style="display:${cloudUser?'inline-block':'none'}">Cambiar usuario</button></div></div>
+<label>URL pública de TU INVENTARIO (Cloudflare Pages)</label><input id="appUrl" type="url" value="${esc(S.cfg.appUrl||currentUrl)}" placeholder="https://tu-inventario.pages.dev">
+<div class="r" style="margin-top:9px"><button class="g" onclick="S.cfg.appUrl=$('appUrl').value.trim();save();copyAppLink()">Copiar enlace al celular</button><button class="g" onclick="pull().then(()=>toast('Sincronización consultada'))">Sincronizar ahora</button></div>
+<p class="mu">En ambos dispositivos abrí la misma dirección web, configurá la misma URL/API pública de Supabase una vez y seleccioná el usuario con su PIN.</p></div>
+<div class="card" id="userAdmin" style="display:${cloudUser?.rol==='admin'?'block':'none'}"><b>Administrar usuarios y PIN</b><p class="mu">Solo el administrador puede crear o modificar usuarios. El PIN nunca se guarda en el navegador.</p><div id="usersList"></div><button class="g" onclick="getUsers()">Actualizar usuarios</button>
+<label>Nombre del nuevo usuario</label><input id="newUsername" placeholder="Ej: Matías">
+<label>PIN numérico (6 a 10 cifras)</label><input id="newPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="10" placeholder="PIN privado">
+<label>Permiso</label><select id="newRole"><option value="operador">Operador (contar)</option><option value="supervisor">Supervisor (contar y validar)</option><option value="admin">Administrador (todo)</option></select>
+<button class="b" style="margin-top:10px;width:100%" onclick="saveNewUser()">Crear usuario con PIN</button></div>
+<div class="card"><b>Importar stock (Excel/CSV)</b><div class="mu">Sucursal, SKU, nombre, marca, categoría, talle, cantidad, código de barras y costo. Solo administradores.</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leer(this.files[0])" ${cloudUser?.rol==='admin'?'':'disabled'}><div id="im"></div></div>
+<div class="card"><b>Movimientos posteriores al corte</b><div class="mu">Excel con SKU, talle y cantidad. Ventas en negativo e ingresos en positivo.</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leerMov(this.files[0])" ${cloudUser?.rol==='operador'?'disabled':''}></div>
+<div class="card"><b>Datos de una versión anterior</b><p class="mu">Si tenías inventarios guardados en este navegador con la versión anterior, podés recuperarlos sin borrar los actuales. Solo administradores.</p><button class="g" style="width:100%" onclick="recoverPreviousLocal()">Recuperar inventario local anterior</button></div>
 <div class="card"><b>Reportes</b><button class="g" style="width:100%" onclick="repo()">Exportar conciliación completa (Excel)</button><div class="mu" style="margin-top:6px">${S.stock.length} filas de stock · ${S.counts.length} registros · ${S.sesiones.length} sesiones</div></div>`}
 async function leer(f){if(!f)return;const wb=XLSX.read(await f.arrayBuffer(),{type:'array'}),raw=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{raw:false,defval:''}),h=Object.keys(raw[0]||{}),map={};
  const nm=x=>nrm(String(x)).trim();for(const[k,a]of Object.entries(AL))map[k]=h.find(x=>a.includes(nm(x)))||h.find(x=>a.some(y=>nm(x).includes(y)&&k!=='sku'));
@@ -380,35 +431,29 @@ async function leer(f){if(!f)return;const wb=XLSX.read(await f.arrayBuffer(),{ty
  IMP={rows,n:f.name};$('im').innerHTML=`<div>${rows.length} variantes válidas · ${dup.length} duplicadas (se omiten) · ${err.length} con error (filas ${err.slice(0,8).join(', ')})<br>Sucursales: ${[...new Set(rows.map(r=>r.sucursal))].join(', ')}</div><button class="b" style="width:100%;margin-top:8px" onclick="impOk()">Confirmar importación</button>`}
 async function impOk(){
  if(!IMP)return toast('No hay archivo pendiente');
- if(sb&&!cloudUser)return toast('Iniciá sesión antes de importar para compartir entre equipos',4200);
- if(sb&&!navigator.onLine)return toast('Conectate a internet para importar nuevas planillas. Los conteos previos sí pueden seguir sin conexión.',5000);
- const id=uid(),rows=IMP.rows;
- $('im').textContent='Importando…';
- if(cloudReady()){
-  const e1=await sb.from('importaciones').insert({id,nombre:IMP.n,sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length,owner_id:cloudUser.id});
-  if(e1.error){$('im').textContent='Error de importación: '+e1.error.message+' (revisá el archivo SQL de instalación)';return}
-  for(let i=0;i<rows.length;i+=300){
-   const data=rows.slice(i,i+300).map(r=>({...r,importacion_id:id,owner_id:cloudUser.id}));
-   const e=await sb.from('stock_oficial').insert(data);
-   if(e.error){await sb.from('importaciones').delete().eq('id',id);$('im').textContent='Error al subir el stock: '+e.error.message;return}
+ if(!cloudReady()||cloudUser.rol!=='admin')return toast('Iniciá sesión como administrador para importar el Excel',5000);
+ const id=uid(),rows=IMP.rows;$('im').textContent='Subiendo stock…';
+ try{
+  await rpc('inventory_save',{p_token:cloudToken,p_tipo:'importaciones',p_registros:[{id,nombre:IMP.n,sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length,created_at:now()}]});
+  for(let i=0;i<rows.length;i+=250){
+   await rpc('inventory_import_stock',{p_token:cloudToken,p_importacion:id,p_filas:rows.slice(i,i+250)});
+   $('im').textContent='Importando '+Math.min(i+250,rows.length)+' de '+rows.length+'…';
   }
- }
- // Mantener las importaciones anteriores en vez de perder el stock de sesiones históricas.
- S.stock=S.stock.concat(rows.map(r=>({...r,imp:id,importacion_id:id})));
- if(cloudReady())syncedImports.add(id);
- IDX=null;save();IMP=null;
- $('im').textContent=`✔ ${rows.length} variantes importadas${cloudReady()?' a la nube':''}. Creá una sesión en Conteo.`;
- toast('Importación completada');
+  S.stock=S.stock.concat(rows.map(r=>({...r,imp:id,importacion_id:id})));
+  syncedImports.add(id);IDX=null;save();IMP=null;
+  $('im').textContent=`✔ ${rows.length} variantes importadas a Supabase. Creá una sesión en Conteo.`;
+  toast('Stock guardado en la nube');
+ }catch(e){$('im').textContent='Error: '+e.message+'. Si se interrumpió la subida, reintentá la importación completa con un nuevo archivo.';toast('No se completó la importación',4000)}
 }
 async function leerMov(f){const s=cur();if(!s||!f)return toast('Elegí sesión');let n=0;const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
  XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{raw:false}).forEach(x=>{const o={};for(const y in x)o[nrm(y).trim()]=x[y];const q=parseFloat(String(o.cantidad).replace(',','.')),sk=String(o.sku||'').trim();if(sk&&!isNaN(q)){up('mov',{id:uid(),sesion_id:s.id,sku:sk,talle:String(o.talle||o.talla||'').trim(),cantidad:q,created_at:now()});n++}});toast(n+' movimientos cargados');render()}
 // ---------- vistas ----------
 function go(t){tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));['c','a','j','d'].forEach(x=>$('v-'+x).classList.toggle('hide',x!==t));if(t!=='c')stopCam();else if(mode==='cam')startCam();render()}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.t));
-function render(){IDX=null;$('ses').innerHTML=`<option value="">— elegir sesión —</option>`+S.sesiones.map(s=>`<option value="${s.id}" ${s.id===S.cfg.ses?'selected':''}>${esc(s.nombre)} · ${esc(s.sucursal)}</option>`).join('');$('ses').onchange=selSes;$('sec').value=S.cfg.sec||'';$('ope').value=S.cfg.ope||'';
+function render(){IDX=null;$('ses').innerHTML=`<option value="">— elegir sesión —</option>`+S.sesiones.map(s=>`<option value="${s.id}" ${s.id===S.cfg.ses?'selected':''}>${esc(s.nombre)} · ${esc(s.sucursal)}</option>`).join('');$('ses').onchange=selSes;$('sec').value=S.cfg.sec||'';$('ope').value=cloudUser?.nombre||'';$('newSessionBtn').disabled=cloudUser?.rol==='operador'||!cloudUser;
  $('secs').innerHTML=S.sectores.filter(x=>x.sesion_id===S.cfg.ses).map(x=>`<option value="${esc(x.nombre)}">`).join('');const L=lockedSec(S.cfg.ses,S.cfg.sec);$('bsec').textContent=L?'Reabrir sector 🔒':'Cerrar sector';
  $('bm').textContent='Modo: '+(S.g?'agrupado (indico cantidad)':'unitario (+1)');
- if(tab==='a')$('v-a').innerHTML=vAvance();if(tab==='j')$('v-j').innerHTML=vAjustes();if(tab==='d')$('v-d').innerHTML=vDatos();if(tab==='c'){hist();bar()}if(cur())bar();stat()}
+ if(tab==='a')$('v-a').innerHTML=vAvance();if(tab==='j')$('v-j').innerHTML=vAjustes();if(tab==='d'){ $('v-d').innerHTML=vDatos();if(cloudUser?.rol==='admin')setTimeout(()=>getUsers(),0);}if(tab==='c'){hist();bar()}if(cur())bar();stat()}
 conn();setMode('scan');render();if(!S.stock.length||!S.sesiones.length)go('d');
 if(!S.cfg.ses&&S.sesiones.length===1){S.cfg.ses=S.sesiones[0].id;render()}
 setInterval(()=>{if(cloudReady())pull()},10000);
