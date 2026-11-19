@@ -11,7 +11,7 @@
 header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--bd);padding:8px 12px;z-index:5}
 header b{font-size:15px}#hs{color:var(--mu);font-size:13px}
 .bar{height:8px;background:var(--bd);border-radius:4px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);width:0}
-main{padding:10px;max-width:820px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:10px}
+main{padding:10px;max-width:920px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-bottom:10px}
 nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
 nav button{flex:1;border:0;background:none;color:var(--mu);padding:14px 4px;font-size:14px}nav button.on{color:var(--ac);font-weight:700;box-shadow:inset 0 3px var(--ac)}
 button,select,input{font:inherit}button.b{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:12px 14px}button.g{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:10px 12px}
@@ -25,9 +25,14 @@ input,select{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8p
 .COINCIDE{background:var(--ok)}.FALTANTE{background:var(--fa)}.SOBRANTE{background:var(--so)}.PENDIENTE{background:var(--pe)}.NI{background:var(--ni)}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;border-bottom:1px solid var(--bd);text-align:left}
 #toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:20px;z-index:9;display:none;max-width:90%}
+#connectBadge{display:inline-block;padding:3px 9px;border-radius:12px;background:var(--bg);border:1px solid var(--bd);font-size:12px;color:var(--mu)}
+.link-box{overflow-wrap:anywhere;font-size:13px;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--bd)}
+.authbox{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:11px;margin:10px 0}
+.auth-actions{display:flex;gap:8px;margin-top:8px}.auth-actions button{flex:1}
+.warn{color:var(--fa);font-size:13px}.oktext{color:var(--ok);font-size:13px}
 .flash{animation:f .4s}@keyframes f{from{background:#2e7d4f55}}video{width:100%;border-radius:8px;background:#000;max-height:240px}.hide{display:none}.k{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.k div{text-align:center}
 </style></head><body>
-<header><div class="r"><b id="hb">Inventario</b><span id="hs" class="n"></span></div><div class="bar"><i id="pg"></i></div></header>
+<header><div class="r"><b id="hb">Inventario</b><span id="hs" class="n"></span><span id="connectBadge" class="n">Solo este equipo</span></div><div class="bar"><i id="pg"></i></div></header>
 <div id="toast"></div>
 <main>
 <section id="v-c">
@@ -49,29 +54,187 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 4px;b
 <script>
 const $=i=>document.getElementById(i),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),
  K=(s,k,t)=>`${s}|${String(k).trim().toUpperCase()}|${String(t||'').trim().toLowerCase()}`,uid=()=>crypto.randomUUID(),now=()=>new Date().toISOString();
-const TB={conteos:'counts',marcas:'marks',ajustes:'ajustes',sectores:'sectores',sesiones:'sesiones',movimientos:'mov'};
-let S=JSON.parse(localStorage.getItem('inv')||'null')||{stock:[],counts:[],marks:[],ajustes:[],sectores:[],sesiones:[],mov:[],cfg:{url:'',key:'',ses:'',sec:'',ope:''},g:false};
-let sb=null,mode='scan',hf=false,rec=false,sel=null,tab='c',lastScan=['',0],lastUnk=null,IMP=null,flt='',fst='';
+// OPCIONAL: para usar la misma configuración en todos los dispositivos,
+// rellená estas dos constantes con los datos públicos de Supabase ANTES de subir index.html a Cloudflare Pages.
+// Nunca pongas aquí una service_role, secret key ni una contraseña.
+const DEFAULT_SUPABASE_URL = '';
+const DEFAULT_SUPABASE_PUBLIC_KEY = '';
+const TB={sesiones:'sesiones',sectores:'sectores',conteos:'counts',marcas:'marks',movimientos:'mov',ajustes:'ajustes'};
+function blankState(){return {stock:[],counts:[],marks:[],ajustes:[],sectores:[],sesiones:[],mov:[],cfg:{url:DEFAULT_SUPABASE_URL,key:DEFAULT_SUPABASE_PUBLIC_KEY,ses:'',sec:'',ope:'',appUrl:'',ownerId:''},g:false};}
+let S;try{S=JSON.parse(localStorage.getItem('inv')||'null')||blankState()}catch(e){S=blankState()}
+S.cfg=S.cfg||{}; S.cfg.url=S.cfg.url||DEFAULT_SUPABASE_URL; S.cfg.key=S.cfg.key||DEFAULT_SUPABASE_PUBLIC_KEY;
+S.cfg.appUrl=S.cfg.appUrl||'';
+for(const k of ['stock','counts','marks','ajustes','sectores','sesiones','mov'])if(!Array.isArray(S[k]))S[k]=[];
+let sb=null,cloudUser=null,syncBusy=false,pullBusy=false,syncedImports=new Set(),connectMsg='',mode='scan',hf=false,rec=false,sel=null,tab='c',lastScan=['',0],lastUnk=null,IMP=null,flt='',fst='';
 const save=()=>{try{localStorage.setItem('inv',JSON.stringify(S))}catch(e){toast('Memoria llena: sincroniza y limpia')}};
 function toast(m,ms=1800){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',ms)}
 let AC;function beep(ok=true){try{AC=AC||new AudioContext();const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=ok?880:200;g.gain.value=.15;o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+(ok?.08:.3))}catch(e){}navigator.vibrate&&navigator.vibrate(ok?30:[80,40,80])}
 function say(t){if(hf&&window.speechSynthesis){const u=new SpeechSynthesisUtterance(t);u.lang='es-ES';speechSynthesis.speak(u)}}
 const cur=()=>S.sesiones.find(s=>s.id===S.cfg.ses);
-// ---------- sync ----------
-function conn(){if(S.cfg.url&&S.cfg.key&&window.supabase){try{sb=supabase.createClient(S.cfg.url,S.cfg.key)}catch(e){sb=null}}}
-async function push(){if(!sb||!navigator.onLine)return;for(const[t,k]of Object.entries(TB)){const d=S[k].filter(r=>r._d);for(let i=0;i<d.length;i+=300){const ch=d.slice(i,i+300),{error}=await sb.from(t).upsert(ch.map(({_d,...r})=>r));if(error){console.warn(t,error);return}ch.forEach(r=>delete r._d)}}save();stat()}
+// ---------- conexión, autenticación y sincronización ----------
+function validPublicKey(key){
+ if(!key||/^(sb_secret_|sb_service_)/i.test(key)||/service_role/i.test(key))return false;
+ // La clave JWT antigua también puede tener rol de servicio; nunca permitirla.
+ if(key.split('.').length===3){try{const v=JSON.parse(atob(key.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));if(v.role==='service_role')return false}catch(e){}}
+ return key.startsWith('sb_publishable_')||key.startsWith('eyJ');
+}
+function conn(){
+ if(!S.cfg.url||!S.cfg.key||!window.supabase){sb=null;cloudUser=null;return false}
+ try{
+  const u=new URL(S.cfg.url);
+  if(u.protocol!=='https:'||!validPublicKey(S.cfg.key))throw Error('Usá la URL HTTPS y una publishable/anon key pública.');
+  sb=supabase.createClient(u.origin,S.cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});syncedImports=new Set();
+  sb.auth.onAuthStateChange((event,session)=>{
+   const previous=cloudUser?.id;
+   cloudUser=session?.user||null;
+   // En cambio de usuario, impedir que los datos locales del usuario anterior se suban a otro.
+   if(cloudUser&&S.cfg.ownerId&&S.cfg.ownerId!==cloudUser.id){
+    const config={...S.cfg,ses:'',sec:'',ope:'',ownerId:cloudUser.id};
+    S=blankState();S.cfg=config;save();
+   }
+   if(cloudUser){S.cfg.ownerId=cloudUser.id;save()}
+   showConnectionState();
+   if(cloudUser&&(event==='SIGNED_IN'||event==='INITIAL_SESSION'||(event==='TOKEN_REFRESHED'&&!previous)))setTimeout(()=>pull(),0);
+  });
+  sb.auth.getSession().then(({data,error})=>{if(error){connectMsg=error.message;showConnectionState();return}
+    cloudUser=data.session?.user||null;if(cloudUser){S.cfg.ownerId=cloudUser.id;save();pull()}showConnectionState();}).catch(e=>{connectMsg=e.message;showConnectionState()});
+  return true;
+ }catch(e){sb=null;cloudUser=null;connectMsg=e.message;showConnectionState();return false}
+}
+function cloudReady(){return !!(sb&&cloudUser&&navigator.onLine)}
+function dirtyCount(){return Object.values(TB).reduce((n,k)=>n+S[k].filter(x=>x._d).length,0)}
+function showConnectionState(){
+ const b=$('connectBadge');if(!b)return;
+ const status=!sb?'Sin configurar':!navigator.onLine?'Sin internet':!cloudUser?'Falta iniciar sesión':dirtyCount()?'Sincronizando…':'Nube conectada';
+ b.textContent=status;b.style.color=sb&&cloudUser&&navigator.onLine?'var(--ok)':'var(--mu)';
+ const x=$('cloudState');if(x)x.innerHTML=`<b>${esc(status)}</b>${cloudUser?`<br>Cuenta: ${esc(cloudUser.email||cloudUser.id)}`:''}${connectMsg?`<br><span class="warn">${esc(connectMsg)}</span>`:''}`;
+ const a=$('authArea');if(a)a.style.display=sb?'block':'none';
+ const lin=$('loginForm');if(lin)lin.style.display=cloudUser?'none':'block';
+ const lo=$('logoutArea');if(lo)lo.style.display=cloudUser?'block':'none';
+}
+async function saveConnection(){
+ const url=($('cu')?.value||'').trim().replace(/\/+$/,'');
+ const key=($('ck')?.value||'').trim();
+ if(!url||!key){toast('Completá URL y clave pública',3000);return}
+ try{const u=new URL(url);if(u.protocol!=='https:')throw Error();}catch(e){toast('URL inválida; debe comenzar por https://',3200);return}
+ if(!validPublicKey(key)){toast('Clave inválida. Solo publicable/anon, NUNCA secreta.',4000);return}
+ S.cfg.url=url;S.cfg.key=key;S.cfg.appUrl=($('appUrl')?.value||'').trim();save();
+ connectMsg='';conn();showConnectionState();toast('Configuración guardada. Iniciá sesión.',2800);
+}
+async function authAction(action){
+ if(!sb)return toast('Primero guardá la conexión');
+ const email=($('authEmail')?.value||'').trim();const password=$('authPass')?.value||'';
+ if(!email.includes('@')||password.length<6)return toast('Ingresá email y contraseña de al menos 6 caracteres',3500);
+ const btn=$('btnLogin');if(btn)btn.disabled=true;connectMsg='';
+ try{
+  const {data,error}=action==='signup'?await sb.auth.signUp({email,password}):await sb.auth.signInWithPassword({email,password});
+  if(error)throw error;
+  cloudUser=data.session?.user||null;
+  if(action==='signup'&&!data.session){connectMsg='Revisá tu correo y confirmá tu cuenta; luego iniciá sesión.'}
+  else{connectMsg='';if(cloudUser){S.cfg.ownerId=cloudUser.id;save();await pull()}}
+ }catch(e){connectMsg=e.message||'Falló la autenticación'}finally{if(btn)btn.disabled=false;showConnectionState()}
+}
+async function logout(){
+ if(!sb)return;
+ if(dirtyCount()&&!confirm('Hay registros pendientes de subir. Si cerrás sesión, podrían quedar solo en este equipo. ¿Continuar?'))return;
+ const {error}=await sb.auth.signOut();if(error)return toast('Error: '+error.message,4000);
+ cloudUser=null;const config={...S.cfg,ownerId:'',ses:'',sec:'',ope:''};S=blankState();S.cfg=config;save();connectMsg='Sesión cerrada';render();showConnectionState();
+}
+function copyAppLink(){
+ const u=(($('appUrl')?.value||S.cfg.appUrl||'').trim())||(location.protocol==='https:'?location.origin+location.pathname:'');
+ if(!/^https:\/\//i.test(u))return toast('Primero publicá index.html en Cloudflare Pages y pegá la URL pública',4300);
+ if(navigator.clipboard?.writeText)navigator.clipboard.writeText(u).then(()=>toast('URL copiada para abrir en el celular')).catch(()=>prompt('Copiá el enlace:',u));
+ else prompt('Copiá el enlace:',u);
+}
+async function testConnection(){
+ if(!sb)return toast('Primero guardá la URL y la clave pública');
+ if(!cloudUser)return toast('Primero iniciá sesión');
+ const {data,error}=await sb.from('sesiones').select('id').limit(1);
+ connectMsg=error?'No se puede consultar la base: '+error.message:'Conexión y permisos verificados. '+(data.length?'Hay sesiones guardadas.':'Base accesible, sin sesiones aún.');
+ showConnectionState();toast(error?'Revisá SQL y permisos':'Conexión verificada',3400);
+}
+// Migra automáticamente las planillas guardadas localmente ANTES de subir sesiones/conteos.
+// También permite recuperar una importación que se preparó en modo local antes de configurar la nube.
+async function syncImports(){
+ const groups=new Map();
+ S.stock.forEach(r=>{const id=r.imp||r.importacion_id;if(!id)return;
+  if(!groups.has(id))groups.set(id,[]);groups.get(id).push(r)
+ });
+ for(const [id,rows] of groups){
+  if(syncedImports.has(id))continue;
+  const {data, error}=await sb.from('importaciones').select('id').eq('id',id).maybeSingle();
+  if(error)throw Error('No se puede verificar importación: '+error.message);
+  if(!data){
+   const ins=await sb.from('importaciones').insert({id,owner_id:cloudUser.id,nombre:'Planilla recuperada desde este dispositivo',sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length});
+   if(ins.error)throw Error('No se puede recuperar la importación: '+ins.error.message);
+   for(let i=0;i<rows.length;i+=250){
+    const payload=rows.slice(i,i+250).map(r=>({owner_id:cloudUser.id,importacion_id:id,sucursal:r.sucursal,sku:r.sku,
+     nombre:r.nombre||'',marca:r.marca||'',categoria:r.categoria||'',talle:r.talle||'',cantidad:Number(r.cantidad)||0,
+     barcode:r.barcode||'',costo:r.costo==null?null:Number(r.costo)}));
+    const res=await sb.from('stock_oficial').upsert(payload,{onConflict:'importacion_id,sucursal,sku,talle'});
+    if(res.error)throw Error('Error recuperando planilla: '+res.error.message);
+   }
+  }
+  syncedImports.add(id);
+ }
+}
+async function push(){
+ if(!cloudReady()||syncBusy)return false;
+ syncBusy=true;let success=true;
+ try{
+  await syncImports();
+  for(const [t,k] of Object.entries(TB)){
+   let d=S[k].filter(r=>r._d);
+   for(let i=0;i<d.length;i+=150){
+    const ch=d.slice(i,i+150);
+    const payload=ch.map(({_d,...row})=>({...row,owner_id:cloudUser.id}));
+    const {error}=await sb.from(t).upsert(payload,{onConflict:'id'});
+    if(error)throw Error(`${t}: ${error.message}`);
+    ch.forEach(r=>{r._d=undefined;delete r._d});
+   }
+  }
+  connectMsg='';save();
+ }catch(e){success=false;connectMsg='No se pudo sincronizar: '+e.message;console.error(e)}
+ finally{syncBusy=false;showConnectionState()}
+ return success;
+}
 async function all(q){let o=[],f=0;for(;;){const{data,error}=await q().range(f,f+999);if(error)throw error;o=o.concat(data);if(data.length<1000)return o;f+=1000}}
-async function pull(){if(!sb||!navigator.onLine)return;try{await push();
- S.sesiones=mrg(S.sesiones,await all(()=>sb.from('sesiones').select('*')));const s=cur();if(!s){render();return}
- for(const[t,k]of Object.entries(TB)){if(t==='sesiones')continue;S[k]=mrg(S[k],await all(()=>sb.from(t).select('*').eq('sesion_id',s.id)),s.id)}
- if(s.importacion_id&&!S.stock.some(r=>r.imp===s.importacion_id)){S.stock=(await all(()=>sb.from('stock_oficial').select('*').eq('importacion_id',s.importacion_id).order('id'))).map(r=>({...r,imp:r.importacion_id}))}
- save();render();stat('ok')}catch(e){stat('error: '+(e.message||e))}}
-function mrg(loc,rem,ses){const d=new Map(loc.filter(r=>r._d).map(r=>[r.id,r])),o=rem.map(r=>d.get(r.id)||r);const ids=new Set(rem.map(r=>r.id));return o.concat(loc.filter(r=>r._d&&!ids.has(r.id)),ses?loc.filter(r=>!r._d&&r.sesion_id!==ses):[])}
-function up(k,row){row._d=1;const i=S[k].findIndex(r=>r.id===row.id);i<0?S[k].push(row):S[k][i]=row;save();push()}
-const stat=m=>{$('hs').textContent=(sb?'☁ ':'💾 ')+(S.counts.some(r=>r._d)?'pendiente sync':'')+(m&&m!=='ok'?' '+m:'')};
+async function pull(){
+ if(!cloudReady()||pullBusy)return;
+ pullBusy=true;
+ try{
+  const pushed=await push();if(!pushed)throw Error(connectMsg||'Datos pendientes de sincronizar');
+  const remoteSessions=await all(()=>sb.from('sesiones').select('*').order('created_at'));
+  S.sesiones=mrg(S.sesiones,remoteSessions);
+  if(!cur()&&S.sesiones.length){S.cfg.ses=S.sesiones[S.sesiones.length-1].id}
+  const sess=cur();
+  if(sess){
+   for(const[t,k]of Object.entries(TB)){
+    if(t==='sesiones')continue;
+    S[k]=mrg(S[k],await all(()=>sb.from(t).select('*').eq('sesion_id',sess.id)),sess.id);
+   }
+   if(sess.importacion_id&&!S.stock.some(r=>r.imp===sess.importacion_id)){
+    const rows=await all(()=>sb.from('stock_oficial').select('*').eq('importacion_id',sess.importacion_id).order('id'));
+    S.stock=S.stock.concat(rows.map(r=>({...r,imp:r.importacion_id})));
+   }
+  }
+  connectMsg='';save();render();
+ }catch(e){connectMsg='Error nube: '+(e.message||e);console.warn(connectMsg);showConnectionState()}
+ finally{pullBusy=false}
+}
+function mrg(loc,rem,ses){
+ const d=new Map(loc.filter(r=>r._d).map(r=>[r.id,r]));
+ const o=rem.map(r=>d.get(r.id)||r);const ids=new Set(rem.map(r=>r.id));
+ return o.concat(loc.filter(r=>r._d&&!ids.has(r.id)),ses?loc.filter(r=>!r._d&&r.sesion_id!==ses):[])
+}
+function up(k,row){
+ row._d=1;const i=S[k].findIndex(r=>r.id===row.id);if(i<0)S[k].push(row);else S[k][i]=row;
+ save();if(cloudReady())void push();showConnectionState();
+}
+const stat=m=>showConnectionState();
 // ---------- cálculo ----------
 function calc(){const s=cur();if(!s)return null;const V=new Map();
- S.stock.forEach(r=>{if(r.sucursal===s.sucursal)V.set(K(r.sucursal,r.sku,r.talle),{...r,sis:+r.cantidad||0,phys:0,n:0,sec:{}})});
+ S.stock.forEach(r=>{if(r.sucursal===s.sucursal&&r.imp===s.importacion_id)V.set(K(r.sucursal,r.sku,r.talle),{...r,sis:+r.cantidad||0,phys:0,n:0,sec:{}})});
  S.mov.filter(m=>m.sesion_id===s.id).forEach(m=>{const v=V.get(K(s.sucursal,m.sku,m.talle));if(v)v.sis+=+m.cantidad});
  const C=S.counts.filter(c=>c.sesion_id===s.id&&!c.anulado),R=new Set(C.filter(c=>c.tipo==='recuento').map(c=>K(c.sucursal,c.sku,c.talle)));
  C.forEach(c=>{const k=K(c.sucursal,c.sku,c.talle);let v=V.get(k);if(!v){v={sku:c.sku,nombre:'NO IDENTIFICADO',marca:'',categoria:'',talle:c.talle,sis:0,phys:0,n:0,sec:{},unk:1};V.set(k,v)}
@@ -93,7 +256,7 @@ function hist(){const s=cur();$('hist').innerHTML=S.counts.filter(c=>c.sesion_id
 function bar(){const s=stats();if(!s)return;const p=s.o.tot?Math.round(s.o.ok/s.o.tot*100):0;$('pg').style.width=p+'%';$('hb').textContent=`${s.s.nombre} · ${s.s.sucursal}`;$('sumry').textContent=`${S.cfg.sec||'Sin sector'} · ${S.cfg.ope||'Sin responsable'}`;
  $('hs').textContent=`${p}% · ${s.o.ok}/${s.o.tot} var · ${s.o.phys} u`+(S.counts.some(r=>r._d)?' ⏳':'')}
 // ---------- búsqueda de productos ----------
-let IDX=null;function idx(){const s=cur(),B=new Map,K2=new Map;S.stock.forEach(r=>{if(r.sucursal!==s?.sucursal)return;const sk=String(r.sku).toUpperCase();if(!K2.has(sk))K2.set(sk,[]);K2.get(sk).push(r);if(r.barcode)B.set(String(r.barcode).trim(),r)});return IDX={B,K:K2}}
+let IDX=null;function idx(){const s=cur(),B=new Map,K2=new Map;S.stock.forEach(r=>{if(r.sucursal!==s?.sucursal||r.imp!==s?.importacion_id)return;const sk=String(r.sku).toUpperCase();if(!K2.has(sk))K2.set(sk,[]);K2.get(sk).push(r);if(r.barcode)B.set(String(r.barcode).trim(),r)});return IDX={B,K:K2}}
 function scan(code){code=String(code).trim();if(!code)return;const n=Date.now();if(code===lastScan[0]&&n-lastScan[1]<250)return;lastScan=[code,n];
  const I=IDX||idx();let v=I.B.get(code);const up_=code.toUpperCase();
  if(!v){const m=up_.match(/^(.+?)[\s\-_/](\d+(?:[.,]\d+)?|[A-Z0-9]{1,4})$/);if(m&&I.K.has(m[1])){v=I.K.get(m[1]).find(r=>tm(r.talle,m[2]))}}
@@ -162,10 +325,10 @@ function fotoUI(){$('fo').innerHTML=FO.length?FO.map((x,i)=>`<div class="tl"><sp
 function fotoOk(){FO.filter(x=>x.v&&!x.v.amb).forEach(x=>add(x.v,x.q,'foto'));FO=[];$('fo').textContent='Cargado ✔'}
 // ---------- sesiones, sectores ----------
 function cfg(){S.cfg.sec=$('sec').value.trim();S.cfg.ope=$('ope').value.trim();save();bar();if(S.cfg.sec&&cur()){const id=`${cur().id}|${S.cfg.sec}`;if(!S.sectores.some(x=>x.id===id))up('sectores',{id,sesion_id:cur().id,nombre:S.cfg.sec,cerrado:false})}}
-function selSes(){S.cfg.ses=$('ses').value;S.cfg.sec='';$('sec').value='';IDX=null;save();pull();render()}
+function selSes(){S.cfg.ses=$('ses').value;S.cfg.sec='';$('sec').value='';IDX=null;save();render();pull()}
 function nuevaSes(){const imps=[...new Set(S.stock.map(r=>r.imp))];if(!S.stock.length)return toast('Primero importá el Excel en Datos'),go('d');
  const suc=[...new Set(S.stock.map(r=>r.sucursal))],n=prompt('Nombre de la sesión','Inventario '+new Date().toLocaleDateString('es-PY'));if(!n)return;const su=suc.length===1?suc[0]:prompt('Sucursal exacta: '+suc.join(', '),suc[0]);if(!suc.includes(su))return toast('Sucursal inválida');
- const s={id:uid(),nombre:n,sucursal:su,importacion_id:S.stock.find(r=>r.sucursal===su).imp,corte:now(),estado:'abierta',created_at:now()};up('sesiones',s);S.cfg.ses=s.id;IDX=null;save();render()}
+ const s={id:uid(),nombre:n,sucursal:su,importacion_id:[...S.stock].reverse().find(r=>r.sucursal===su).imp,corte:now(),estado:'abierta',created_at:now()};up('sesiones',s);S.cfg.ses=s.id;IDX=null;save();render()}
 function cerrarSector(){const s=cur(),sec=S.cfg.sec;if(!s||!sec)return toast('Elegí sector');const id=`${s.id}|${sec}`,x=S.sectores.find(y=>y.id===id)||{id,sesion_id:s.id,nombre:sec};
  if(x.cerrado){x.cerrado=false;up('sectores',x);return toast('Sector reabierto')}x.cerrado=true;x.cerrado_por=S.cfg.ope;up('sectores',x);toast('Sector cerrado 🔒');render()}
 function toggleRec(){rec=!rec;$('brec').textContent='Recuento ciego: '+(rec?'SÍ':'NO');selUI()}
@@ -195,7 +358,18 @@ function exporta(t){const c=calc(),l=c.L.filter(v=>(t==='ENTRADAS'?v.st==='SOBRA
 function repo(){const c=calc();if(!c)return;const rows=c.L.map(v=>({Sucursal:c.s.sucursal,SKU:v.sku,Producto:v.nombre,Marca:v.marca,Categoria:v.categoria,Talle:v.talle,Sistema:v.sis,Fisico:v.n?v.phys:'',Diferencia:v.n?v.d:'',Estado:v.st}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Conciliacion');XLSX.writeFile(wb,'conciliacion.xlsx')}
 // ---------- datos / importación ----------
 const AL={sucursal:['sucursal','local','tienda','deposito'],sku:['sku','codigo','cod','articulo','referencia','modelo'],nombre:['nombre','producto','descripcion','detalle'],marca:['marca'],categoria:['categoria','rubro','familia'],talle:['talle','talla','size','numero'],cantidad:['cantidad','stock','existencia','qty','saldo'],barcode:['codigo de barras','barcode','ean','codbarras','codigobarras','upc'],costo:['costo','precio costo']};
-function vDatos(){const s=stats();return`<div class="card"><b>Conexión Supabase</b><label>URL del proyecto</label><input id="cu" value="${esc(S.cfg.url)}" placeholder="https://xxxx.supabase.co"><label>Anon key</label><input id="ck" value="${esc(S.cfg.key)}"><button class="b" style="width:100%;margin-top:8px" onclick="S.cfg.url=$('cu').value.trim();S.cfg.key=$('ck').value.trim();save();conn();pull();toast('Conectando…')">Guardar y sincronizar</button><div class="mu">Sin esto funciona 100% local en este equipo.</div></div>
+function vDatos(){const s=stats();const currentUrl=location.protocol==='https:'?location.origin+location.pathname:'';
+return `<div class="card"><b>Conectar computadora y celular</b><p class="mu">Pegá aquí la URL HTTPS de Supabase y la <b>publishable key</b> (o anon key antigua). Nunca uses secret key ni service_role.</p>
+<label for="cu">1. URL del proyecto Supabase</label><input id="cu" type="url" inputmode="url" autocapitalize="none" autocomplete="url" value="${esc(S.cfg.url)}" placeholder="https://tu-proyecto.supabase.co">
+<label for="ck">2. API key PÚBLICA (sb_publishable_... o anon)</label><input id="ck" type="password" autocorrect="off" autocapitalize="none" spellcheck="false" value="${esc(S.cfg.key)}" placeholder="sb_publishable_...">
+<div class="r" style="margin-top:9px"><button class="b" onclick="saveConnection()">Guardar URL y API</button><button class="g" onclick="testConnection()">Probar conexión</button></div>
+<div class="authbox" id="authArea" style="display:${sb?'block':'none'}">
+<div id="cloudState" class="mu">${cloudUser?'Cuenta conectada':'Iniciá sesión para sincronizar'}</div>
+<div id="loginForm" style="display:${cloudUser?'none':'block'}"><label>Correo electrónico</label><input id="authEmail" type="email" autocapitalize="none" autocomplete="username" placeholder="correo@ejemplo.com"><label>Contraseña</label><input id="authPass" type="password" autocomplete="current-password" placeholder="Tu contraseña (mínimo 6 caracteres)"><div class="auth-actions"><button class="b" id="btnLogin" onclick="authAction('login')">Iniciar sesión</button><button class="g" onclick="authAction('signup')">Crear cuenta</button></div></div>
+<div id="logoutArea" style="display:${cloudUser?'block':'none'}"><button class="g" style="margin-top:9px" onclick="logout()">Cerrar sesión</button></div></div>
+<label for="appUrl">3. URL pública de TU INVENTARIO (Cloudflare Pages)</label><input id="appUrl" type="url" inputmode="url" value="${esc(S.cfg.appUrl||currentUrl)}" placeholder="https://tu-inventario.pages.dev"><div class="r" style="margin-top:9px"><button class="g" onclick="S.cfg.appUrl=$('appUrl').value.trim();save();copyAppLink()">Copiar enlace para móvil</button><button class="g" onclick="pull().then(()=>toast('Consulta de sincronización realizada'))">Sincronizar ahora</button></div>
+<p class="mu" style="margin-bottom:0">Para abrir en ambos dispositivos, subí este <b>index.html</b> a Cloudflare Pages (HTTPS). Usá la misma cuenta de Supabase en celular y PC. La URL pública de la web es diferente de la URL del proyecto Supabase.</p>
+${!cloudUser?'<p class="warn">Sin sesión iniciada, los datos quedan guardados únicamente en este dispositivo.</p>':''}</div>
 <div class="card"><b>Importar stock (Excel/CSV)</b><div class="mu">Columnas: sucursal, sku, nombre, marca, categoría, talle, cantidad, código de barras, costo.</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leer(this.files[0])"><div id="im"></div></div>
 <div class="card"><b>Movimientos posteriores al corte</b><div class="mu">Excel con sku, talle, cantidad (ventas en negativo, ingresos en positivo).</div><input type="file" accept=".xlsx,.xls,.csv" onchange="leerMov(this.files[0])"></div>
 <div class="card"><b>Reportes</b><button class="g" style="width:100%" onclick="repo()">Exportar conciliación completa (Excel)</button><div class="mu" style="margin-top:6px">${S.stock.length} filas de stock · ${S.counts.length} registros · ${S.sesiones.length} sesiones</div></div>`}
@@ -204,10 +378,28 @@ async function leer(f){if(!f)return;const wb=XLSX.read(await f.arrayBuffer(),{ty
  const falta=['sku','talle','cantidad'].filter(k=>!map[k]);if(falta.length)return $('im').innerHTML='<b style="color:var(--fa)">Faltan columnas: '+falta.join(', ')+'</b>';
  const seen=new Set,dup=[],err=[],rows=[];raw.forEach((r,i)=>{const o={};for(const k in map)o[k]=map[k]?String(r[map[k]]).trim():'';o.sucursal=o.sucursal||'Principal';const q=parseFloat(String(o.cantidad).replace(',','.'));if(!o.sku||isNaN(q)){err.push(i+2);return}o.cantidad=q;o.costo=parseFloat(String(o.costo).replace(',','.'))||null;const k=K(o.sucursal,o.sku,o.talle);if(seen.has(k)){dup.push(i+2);return}seen.add(k);rows.push(o)});
  IMP={rows,n:f.name};$('im').innerHTML=`<div>${rows.length} variantes válidas · ${dup.length} duplicadas (se omiten) · ${err.length} con error (filas ${err.slice(0,8).join(', ')})<br>Sucursales: ${[...new Set(rows.map(r=>r.sucursal))].join(', ')}</div><button class="b" style="width:100%;margin-top:8px" onclick="impOk()">Confirmar importación</button>`}
-async function impOk(){const id=uid(),rows=IMP.rows;$('im').textContent='Importando…';
- if(sb&&navigator.onLine){const e1=await sb.from('importaciones').insert({id,nombre:IMP.n,sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length});if(e1.error)return $('im').textContent='Error: '+e1.error.message+' ¿Corriste el SQL?';
-  for(let i=0;i<rows.length;i+=500){const e=await sb.from('stock_oficial').insert(rows.slice(i,i+500).map(r=>({...r,importacion_id:id})));if(e.error)return $('im').textContent='Error: '+e.error.message}}
- S.stock=S.stock.filter(r=>false).concat(rows.map(r=>({...r,imp:id,importacion_id:id})));IDX=null;save();IMP=null;$('im').textContent=`✔ ${rows.length} variantes importadas. Creá una sesión en Conteo.`;toast('Importado')}
+async function impOk(){
+ if(!IMP)return toast('No hay archivo pendiente');
+ if(sb&&!cloudUser)return toast('Iniciá sesión antes de importar para compartir entre equipos',4200);
+ if(sb&&!navigator.onLine)return toast('Conectate a internet para importar nuevas planillas. Los conteos previos sí pueden seguir sin conexión.',5000);
+ const id=uid(),rows=IMP.rows;
+ $('im').textContent='Importando…';
+ if(cloudReady()){
+  const e1=await sb.from('importaciones').insert({id,nombre:IMP.n,sucursales:[...new Set(rows.map(r=>r.sucursal))].join(','),filas:rows.length,owner_id:cloudUser.id});
+  if(e1.error){$('im').textContent='Error de importación: '+e1.error.message+' (revisá el archivo SQL de instalación)';return}
+  for(let i=0;i<rows.length;i+=300){
+   const data=rows.slice(i,i+300).map(r=>({...r,importacion_id:id,owner_id:cloudUser.id}));
+   const e=await sb.from('stock_oficial').insert(data);
+   if(e.error){await sb.from('importaciones').delete().eq('id',id);$('im').textContent='Error al subir el stock: '+e.error.message;return}
+  }
+ }
+ // Mantener las importaciones anteriores en vez de perder el stock de sesiones históricas.
+ S.stock=S.stock.concat(rows.map(r=>({...r,imp:id,importacion_id:id})));
+ if(cloudReady())syncedImports.add(id);
+ IDX=null;save();IMP=null;
+ $('im').textContent=`✔ ${rows.length} variantes importadas${cloudReady()?' a la nube':''}. Creá una sesión en Conteo.`;
+ toast('Importación completada');
+}
 async function leerMov(f){const s=cur();if(!s||!f)return toast('Elegí sesión');let n=0;const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
  XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{raw:false}).forEach(x=>{const o={};for(const y in x)o[nrm(y).trim()]=x[y];const q=parseFloat(String(o.cantidad).replace(',','.')),sk=String(o.sku||'').trim();if(sk&&!isNaN(q)){up('mov',{id:uid(),sesion_id:s.id,sku:sk,talle:String(o.talle||o.talla||'').trim(),cantidad:q,created_at:now()});n++}});toast(n+' movimientos cargados');render()}
 // ---------- vistas ----------
@@ -219,6 +411,9 @@ function render(){IDX=null;$('ses').innerHTML=`<option value="">— elegir sesi�
  if(tab==='a')$('v-a').innerHTML=vAvance();if(tab==='j')$('v-j').innerHTML=vAjustes();if(tab==='d')$('v-d').innerHTML=vDatos();if(tab==='c'){hist();bar()}if(cur())bar();stat()}
 conn();setMode('scan');render();if(!S.stock.length||!S.sesiones.length)go('d');
 if(!S.cfg.ses&&S.sesiones.length===1){S.cfg.ses=S.sesiones[0].id;render()}
-setInterval(pull,10000);addEventListener('online',pull);pull();
+setInterval(()=>{if(cloudReady())pull()},10000);
+addEventListener('online',()=>{showConnectionState();pull()});
+addEventListener('offline',()=>showConnectionState());
+showConnectionState();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')){}
 </script></body></html>
